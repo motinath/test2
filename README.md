@@ -9,6 +9,10 @@ Architecture Design → Chip Topology → Physical Layout → Routing
     → Frequency Planning → DRC → EM Simulation → Fabrication Review → Tapeout
 ```
 
+> **Production note:** All design outputs — chip generation, verification, materials, simulations — are
+> sourced exclusively from the backend. There are no client-side mock or fallback generators.
+> The backend **must** be running for the designer to work.
+
 ---
 
 ## V2 Architecture
@@ -115,6 +119,10 @@ npm run dev
 
 > The frontend automatically talks to the backend at `http://localhost:5000`.  
 > To change this, set `VITE_BACKEND_URL` in `frontend/.env.local`.
+
+> **Important:** The backend must be running before you use the designer or verification features.
+> If the backend is unreachable, the app will show a proper error in the UI — it will **not** generate
+> fake/simulated chip data.
 
 ---
 
@@ -226,30 +234,30 @@ frontend/
 ├── vite.config.ts
 └── src/
     ├── routes/
-    │   ├── index.tsx             ← Landing page
-    │   ├── _app.tsx              ← Authenticated app shell (sidebar + nav)
+    │   ├── index.tsx             ← Landing page (public, separate theme)
+    │   ├── _app.tsx              ← Authenticated app shell (sidebar + header)
     │   ├── _auth.tsx             ← Auth layout wrapper
     │   ├── _app/
-    │   │   ├── dashboard.tsx     ← Main dashboard
-    │   │   ├── designer.tsx      ← Chip designer (main feature)
-    │   │   ├── projects.tsx      ← Project manager
-    │   │   ├── verification.tsx  ← DRC verification
+    │   │   ├── dashboard.tsx     ← Workspace home — real stats from backend
+    │   │   ├── designer.tsx      ← AI chip designer (main feature)
+    │   │   ├── projects.tsx      ← Project manager — CRUD via /api/projects
+    │   │   ├── schematic-editor.tsx ← Visual transmon schematic editor
+    │   │   ├── layout-viewer.tsx ← Physical layout visualiser (GDS view)
+    │   │   ├── verification.tsx  ← DRC + frequency verification
     │   │   ├── simulations.tsx   ← Simulation runner
     │   │   ├── results.tsx       ← Results viewer
-    │   │   ├── layout-viewer.tsx ← Layout visualiser
-    │   │   ├── quantum-editor.tsx← QCLang code editor
     │   │   ├── physics-analysis.tsx
     │   │   ├── fault-tolerance.tsx
-    │   │   └── ...
+    │   │   └── component-library.tsx
     │   └── _auth/
-    │       ├── sign-in.tsx       ← Login page → POST /api/auth/token
+    │       ├── sign-in.tsx       ← Login → POST /api/auth/token
     │       ├── sign-up.tsx       ← Register → POST /api/auth/register
     │       └── forgot-password.tsx
     └── lib/
         ├── api/
-        │   └── backend.ts        ← All backend API calls (auto-fallback if offline)
+        │   └── backend.ts        ← All backend API calls (throws on error — no mocks)
         ├── auth/                 ← Auth context / hooks
-        ├── design-context.tsx    ← Global design state
+        ├── design-context.tsx    ← Global designer state (sessions named "Untitled Project N")
         └── project-context.tsx   ← Project state
 ```
 
@@ -283,11 +291,27 @@ frontend/
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET`  | `/api/projects` | List all projects |
+| `GET`  | `/api/projects` | List all projects (authenticated) |
 | `POST` | `/api/projects` | Create project |
 | `PATCH` | `/api/projects/{id}` | Update project |
 | `DELETE` | `/api/projects/{id}` | Delete project |
-| `POST` | `/api/projects/{id}/save-design` | Save design to project |
+| `POST` | `/api/projects/{id}/save-design` | Save design payload to project |
+
+### Simulations
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET`  | `/api/simulations` | List user's simulations |
+| `POST` | `/api/simulations` | Create simulation record |
+| `POST` | `/api/simulations/{id}/run` | Run physics analysis |
+
+### Verification
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/verification/run` | Run DRC + frequency check and save report |
+| `POST` | `/api/verification/check` | Stateless verification (no DB save) |
+| `GET`  | `/api/verification/project/{id}` | Get all reports for a project |
 
 ### Legacy (V1 — still works)
 
@@ -302,12 +326,27 @@ frontend/
 | `POST` | `/api/generate/metal-code` | Qiskit Metal from editor JSON |
 | `POST` | `/api/qclang/parse` | Parse QCLang → AST |
 | `POST` | `/api/qclang/compile` | Compile QCLang → design |
-| `POST` | `/api/verification/check` | Stateless verification |
-| `POST` | `/api/tapeout/generate` | Generate tapeout package |
 | `GET`  | `/api/materials` | List substrates + metals |
 | `POST` | `/api/claude/chat` | AI assistant chat |
+| `POST` | `/api/tapeout/generate` | Generate tapeout package |
 
 Full interactive docs: `http://localhost:5000/docs`
+
+---
+
+## Data Source Policy
+
+**All user-facing outputs come exclusively from the backend.** There are no client-side data generators.
+
+| Function | Behavior when backend is unavailable |
+|----------|--------------------------------------|
+| `generateChip()` | Throws → designer shows `❌ Synthesis failed: …` in chat |
+| `runVerification()` | Throws → verification page shows error |
+| `fetchMaterials()` | Throws → material selector shows unavailable state |
+| `fetchSimulations()` | Throws → dashboard shows empty simulations |
+| `fetchHealth()` | Returns `{ status: "offline" }` — safe indicator only |
+| `askClaude()` | Returns a "backend offline" message — informational only |
+| `getQCLangTemplates()` | Returns `[]` — templates are optional |
 
 ---
 
@@ -368,13 +407,13 @@ cd backend
 
 ## Demo Accounts
 
-When the backend is running, you can register any account via `/api/auth/register` or the Sign Up page.
+When the backend is running, register any account via `/api/auth/register` or the Sign Up page.
 
 | Role | Email | Password |
 |------|-------|----------|
 | Admin | `admin@silicofeller.com` | any (register first) |
 
-> If backend is offline, the app still works in **client-simulation mode** — chip designs are generated entirely in the browser.
+> **No guest / offline mode.** The backend must be running for design functionality to work.
 
 ---
 
@@ -394,6 +433,8 @@ When the backend is running, you can register any account via `/api/auth/registe
 **Substrates:** `silicon` (ε_r=11.45), `sapphire` (ε_r=9.3), `silicon_nitride` (ε_r=7.5)
 
 **Metals:** `aluminum` (Tc=1.2 K), `niobium` (Tc=9.2 K), `tantalum` (Tc=4.5 K), `nbtin` (Tc=15 K)
+
+Material data is served from `GET /api/materials` — not hardcoded in the frontend.
 
 ---
 
@@ -416,16 +457,15 @@ When the backend is running, you can register any account via `/api/auth/registe
 | Port conflict | Vite auto-picks next port; check terminal output |
 | API calls fail | Make sure backend is running on port 5000 |
 
-### Backend is offline / API errors
+### Backend is offline
 
-The frontend has **automatic client-side fallbacks** for:
-- Chip generation (`/generate`)
-- Verification (`/api/verification/check`)
-- Materials list (`/api/materials`)
-- QCLang templates
-- Claude chat
+When the backend is not running:
+- The designer shows an error message in the chat — it does **not** produce fake chip data.
+- The verification page shows an API error — it does **not** produce fake DRC results.
+- The materials dropdown will be unavailable — it does **not** show hardcoded fallback materials.
+- The dashboard shows `0` for all stats and an empty activity feed.
 
-These fallbacks keep the UI fully usable without a backend.
+Start the backend with `.venv\Scripts\python run.py` (Windows) or `.venv/bin/python run.py` (macOS/Linux).
 
 ---
 
@@ -476,4 +516,4 @@ chip HeavyHex7Q
 end
 ```
 
-Compile: `POST /api/qclang/compile` → returns full GenerateResponse with Qiskit Metal code.
+Compile: `POST /api/qclang/compile` → returns full `GenerateResponse` with Qiskit Metal code.

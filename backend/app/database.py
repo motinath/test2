@@ -82,3 +82,43 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     log.info("Database tables ensured.")
+
+    try:
+        from app.models import User, UserRole
+        from app.auth import hash_password
+        from sqlalchemy import select
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(User).where(User.email == "admin@silicofeller.com"))
+            if not result.scalar_one_or_none():
+                demo_users = [
+                    User(
+                        id="u_admin",
+                        name="Admin User",
+                        email="admin@silicofeller.com",
+                        hashed_password=hash_password("password"),
+                        role=UserRole.admin,
+                        organization="Silicofeller Labs",
+                    ),
+                    User(
+                        id="u_org_manager",
+                        name="Organization Manager",
+                        email="manager@quantumlabs.com",
+                        hashed_password=hash_password("password"),
+                        role=UserRole.org_manager,
+                        organization="Quantum Labs",
+                    ),
+                    User(
+                        id="u_engineer",
+                        name="Quantum Engineer",
+                        email="engineer@quantumlabs.com",
+                        hashed_password=hash_password("password"),
+                        role=UserRole.engineer,
+                        organization="Quantum Labs",
+                    ),
+                ]
+                session.add_all(demo_users)
+                await session.commit()
+                log.info("Demo users seeded successfully.")
+    except Exception as e:
+        log.warning(f"Seeding skipped or failed: {e}")
+

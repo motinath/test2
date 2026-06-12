@@ -54,7 +54,7 @@ interface AuthContextType {
   user: User | null;
   hydrated: boolean;
   signIn: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
-  signInAs: (role: UserRole) => void;
+  signInAs: (role: UserRole) => Promise<void>;
   signUp: (name: string, email: string, password: string, org: string, role?: UserRole) => Promise<{ ok: boolean; error?: string }>;
   signOut: () => Promise<void>;
 }
@@ -160,9 +160,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { ok: true };
   };
 
-  // Quick demo login (bypasses real auth — development convenience only)
-  const signInAs = (role: UserRole) => {
+  // Quick demo login (attempts real backend auth first, falls back to offline mock)
+  const signInAs = async (role: UserRole) => {
     const demo = DEMO_ACCOUNTS.find((a) => a.role === role) ?? DEMO_ACCOUNTS[0];
+    try {
+      const data = await loginUser(demo.email, "password");
+      const serverUser = (data as { user?: Record<string, string> }).user;
+      if (serverUser) {
+        const newUser: User = {
+          id: serverUser.id ?? `u_${Date.now()}`,
+          name: serverUser.name ?? demo.name,
+          email: serverUser.email ?? demo.email,
+          role: (serverUser.role as UserRole) ?? role,
+          organization: serverUser.organization ?? demo.organization,
+          initials: serverUser.initials ?? _makeInitials(serverUser.name ?? demo.name),
+        };
+        setUser(newUser);
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newUser));
+        return;
+      }
+    } catch (err) {
+      console.warn("Failed demo login with backend, attempting auto-register...", err);
+      try {
+        const data = await registerUser(demo.name, demo.email, "password", demo.organization, role);
+        const serverUser = (data as { user?: Record<string, string> }).user;
+        if (serverUser) {
+          const newUser: User = {
+            id: serverUser.id ?? `u_${Date.now()}`,
+            name: serverUser.name ?? demo.name,
+            email: serverUser.email ?? demo.email,
+            role: (serverUser.role as UserRole) ?? role,
+            organization: serverUser.organization ?? demo.organization,
+            initials: serverUser.initials ?? _makeInitials(serverUser.name ?? demo.name),
+          };
+          setUser(newUser);
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newUser));
+          return;
+        }
+      } catch (regErr) {
+        console.warn("Demo auto-register failed, falling back to offline mode", regErr);
+      }
+    }
+
+    // Fallback: offline mock login (no backend token)
     const newUser: User = {
       id: `u_${demo.role}`,
       name: demo.name,

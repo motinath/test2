@@ -15,7 +15,10 @@ import {
   toGenerateResponse,
 } from "@/components/quantum-editor/editor-types";
 
-const searchSchema = z.object({ conversationId: z.string().optional() });
+const searchSchema = z.object({
+  conversationId: z.string().optional(),
+  highlight: z.string().optional(),
+});
 
 export const Route = createFileRoute("/_app/schematic-editor")({
   head: () => ({ meta: [{ title: "Quantum Editor — Silicofeller" }] }),
@@ -24,7 +27,7 @@ export const Route = createFileRoute("/_app/schematic-editor")({
 });
 
 function QuantumEditorPage() {
-  const { conversationId } = Route.useSearch();
+  const { conversationId, highlight } = Route.useSearch();
   const navigate = useNavigate();
   const { conversations, activeId, setActiveId, updateConversationResult } = useDesign();
 
@@ -54,11 +57,21 @@ function QuantumEditorPage() {
         variables: seed.variables,
       },
     });
+
+    if (highlight) {
+      const found = seed.components.find(
+        (c) => c.id.toLowerCase() === highlight.toLowerCase()
+      );
+      if (found) {
+        dispatch({ type: "SELECT", id: found.id });
+      }
+    }
+
     // Seed prevResultRef with the original generate result so the first sync
     // has access to placement.edges, frequency_plan, etc.
     prevResultRef.current = conversation.result;
     loadedFor.current = conversation.id;
-  }, [conversation]);
+  }, [conversation, highlight]);
 
   // Two-way sync: push state changes back into design context (debounced via rev)
   const prevResultRef = useRef<import("@/lib/api/backend").GenerateResponse | null>(null);

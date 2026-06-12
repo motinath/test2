@@ -285,7 +285,7 @@ const SelectRow = ({ label, value, onChange, options }: {
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 appearance-none cursor-pointer focus:outline-none focus:border-violet-400"
+        className="w-full text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 appearance-none cursor-pointer focus:outline-none focus:border-accent"
       >
         {options.map(o => <option key={o}>{o}</option>)}
       </select>
@@ -378,8 +378,8 @@ function FaultToleranceStudio() {
         {/* ── TOP BAR ── */}
         <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center">
-              <Shield className="h-5 w-5 text-violet-600" />
+            <div className="h-10 w-10 rounded-xl bg-accent/10 border border-accent/10 flex items-center justify-center">
+              <Shield className="h-5 w-5 text-accent" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -404,7 +404,7 @@ function FaultToleranceStudio() {
             <button
               onClick={runAnalysis}
               disabled={running}
-              className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition-colors disabled:opacity-60 shadow-sm shadow-violet-200"
+              className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-lg bg-accent hover:bg-accent/90 text-white transition-colors disabled:opacity-60 shadow-sm shadow-accent/10"
             >
               {running ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
               {running ? "Running…" : "Run Analysis"}
@@ -415,7 +415,7 @@ function FaultToleranceStudio() {
         {/* ── TOP METRICS ── */}
         <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
           className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 mb-4">
-          <MetricCard label="Logical Qubits (Max)" value={String(topMetrics.logicalQubits)} icon={Cpu} color="text-violet-600" status="pass" />
+          <MetricCard label="Logical Qubits (Max)" value={String(topMetrics.logicalQubits)} icon={Cpu} color="text-accent" status="pass" />
           <MetricCard label="Logical Error Rate" value={topMetrics.logicalErrorRate} sub="d=11 surface code" icon={Activity} color="text-red-500" />
           <MetricCard
             label="Threshold Margin"
@@ -432,7 +432,7 @@ function FaultToleranceStudio() {
             icon={Settings2}
             color={topMetrics.controlOverhead === "High" ? "text-amber-500" : "text-emerald-600"}
           />
-          <MetricCard label="Scalability Score" value={`${topMetrics.scalability}/100`} icon={Zap} color="text-violet-600" status={topMetrics.scalability > 70 ? "pass" : "warn"} />
+          <MetricCard label="Scalability Score" value={`${topMetrics.scalability}/100`} icon={Zap} color="text-accent" status={topMetrics.scalability > 70 ? "pass" : "warn"} />
         </motion.div>
 
         {/* ── TABS ── */}
@@ -442,7 +442,7 @@ function FaultToleranceStudio() {
               onClick={() => setActiveTab(t.toLowerCase().replace(/ & /g, "-").replace(/ /g, "-"))}
               className={`text-xs font-bold px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${
                 activeTab === t.toLowerCase().replace(/ & /g, "-").replace(/ /g, "-")
-                  ? "bg-white text-violet-700 shadow-sm"
+                  ? "bg-white text-accent shadow-sm"
                   : "text-slate-500 hover:text-slate-700"
               }`}>{t}</button>
           ))}
@@ -536,13 +536,13 @@ function FaultToleranceStudio() {
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   {[
                     ["Threshold Margin", `${threshold.thresholdMargin}%`, Number(threshold.thresholdMargin) > 0 ? "text-emerald-600" : "text-amber-500"],
-                    ["Logical Qubits (Max)", topMetrics.logicalQubits, "text-violet-600"],
+                    ["Logical Qubits (Max)", topMetrics.logicalQubits, "text-accent"],
                     ["Logical Error Rate (d=11)", topMetrics.logicalErrorRate, "text-red-500"],
                     ["Logical Fidelity", `${topMetrics.logicalFidelity}%`, "text-emerald-600"],
                     ["Physical Qubits", topMetrics.physicalQubits.toLocaleString(), "text-slate-700"],
                     ["Qubit Overhead", `${topMetrics.qubitOverhead}×`, "text-slate-700"],
                     ["Est. Logical Gates", "~" + (topMetrics.physicalQubits * 0.8).toLocaleString(), "text-slate-700"],
-                    ["Scalability Score", `${topMetrics.scalability}/100`, "text-violet-600"],
+                    ["Scalability Score", `${topMetrics.scalability}/100`, "text-accent"],
                   ].map(([k, v, c]) => (
                     <div key={String(k)} className="bg-slate-50 rounded-lg p-2.5">
                       <div className="text-[10px] text-slate-400 font-medium">{k}</div>
@@ -570,10 +570,10 @@ function FaultToleranceStudio() {
                 <div className="flex flex-col gap-1 mb-3">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Rounds (Cycles)</label>
                   <input type="number" value={rounds} onChange={e => setRounds(e.target.value)}
-                    className="text-xs font-mono font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-violet-400" />
+                    className="text-xs font-mono font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-accent" />
                 </div>
                 <button onClick={runAnalysis} disabled={running}
-                  className="w-full flex items-center justify-center gap-2 text-xs font-bold py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition-colors shadow-sm disabled:opacity-60">
+                  className="w-full flex items-center justify-center gap-2 text-xs font-bold py-2.5 rounded-lg bg-accent hover:bg-accent/90 text-white transition-colors shadow-sm disabled:opacity-60">
                   {running ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
                   {running ? "Running…" : "▶ Run Analysis"}
                 </button>
@@ -595,7 +595,7 @@ function FaultToleranceStudio() {
                     <span className="text-xs text-slate-500 flex-1">{k}</span>
                     <span className={`text-xs font-bold font-mono ${
                       k === "Classical Processing" ? (v === "High" ? "text-amber-600" : "text-emerald-600") :
-                      k === "Total Physical Qubits" ? "text-violet-700" : "text-slate-800"
+                      k === "Total Physical Qubits" ? "text-accent" : "text-slate-800"
                     }`}>{v}</span>
                   </div>
                 ))}
@@ -643,9 +643,9 @@ function FaultToleranceStudio() {
                 </ResponsiveContainer>
               </div>
               <div className="grid grid-cols-3 gap-3 mt-4">
-                <div className="bg-violet-50 border border-violet-100 rounded-xl p-3 text-center">
+                <div className="bg-accent/10 border border-accent/10 rounded-xl p-3 text-center">
                   <div className="text-[10px] text-violet-400 font-bold uppercase tracking-wider">Estimated Threshold</div>
-                  <div className="text-lg font-black font-mono text-violet-700 mt-1">{threshold.p_th.toExponential(2)}</div>
+                  <div className="text-lg font-black font-mono text-accent mt-1">{threshold.p_th.toExponential(2)}</div>
                 </div>
                 <div className={`${Number(threshold.thresholdMargin) > 0 ? "bg-emerald-50 border-emerald-100" : "bg-amber-50 border-amber-100"} border rounded-xl p-3 text-center`}>
                   <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Your Hardware p_phys</div>
@@ -679,8 +679,8 @@ function FaultToleranceStudio() {
                   <tbody>
                     {logPerf.map(row => (
                       <tr key={row.d}
-                        className={`border-b border-slate-50 hover:bg-slate-50 transition-colors ${row.d === 11 ? "bg-violet-50/40" : ""}`}>
-                        <td className="py-2.5 pr-4 font-black text-violet-700">d={row.d}</td>
+                        className={`border-b border-slate-50 hover:bg-slate-50 transition-colors ${row.d === 11 ? "bg-accent/5" : ""}`}>
+                        <td className="py-2.5 pr-4 font-black text-accent">d={row.d}</td>
                         <td className="py-2.5 pr-4 font-mono text-red-500">{row.pL}</td>
                         <td className="py-2.5 pr-4 font-mono text-emerald-600 font-bold">{row.fidelity}%</td>
                         <td className="py-2.5 pr-4 font-mono text-slate-700">{row.nPhys.toLocaleString()}</td>
@@ -746,7 +746,7 @@ function FaultToleranceStudio() {
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-1.5">
                       <div
-                        className="h-1.5 rounded-full bg-violet-500 transition-all"
+                        className="h-1.5 rounded-full bg-accent/100 transition-all"
                         style={{ width: `${Math.min(100, item.value * 100)}%` }}
                       />
                     </div>
@@ -760,8 +760,8 @@ function FaultToleranceStudio() {
               {PHYSICS_REPORT.qubit_results.map(q => (
                 <div key={q.qubit_id} className="mb-4 last:mb-0">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xs font-black text-violet-700">{q.qubit_id}</span>
-                    <span className="text-[10px] bg-violet-50 text-violet-500 rounded px-1.5 py-0.5 font-bold">{q.type}</span>
+                    <span className="text-xs font-black text-accent">{q.qubit_id}</span>
+                    <span className="text-[10px] bg-accent/10 text-accent rounded px-1.5 py-0.5 font-bold">{q.type}</span>
                     <span className="ml-auto text-[10px] text-slate-400">{q.dominant_T1}</span>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
@@ -813,7 +813,7 @@ function FaultToleranceStudio() {
                   </thead>
                   <tbody>
                     {decoders.map((d, i) => (
-                      <tr key={d.name} className={`border-b border-slate-50 ${i === 0 ? "bg-violet-50/30" : ""}`}>
+                      <tr key={d.name} className={`border-b border-slate-50 ${i === 0 ? "bg-accent/5" : ""}`}>
                         <td className="py-2 pr-2 font-bold text-slate-700">{d.name.replace("\n", " ")}</td>
                         <td className="py-2 pr-2 font-mono text-red-500 text-center">{d.rate.toExponential(2)}</td>
                         <td className="py-2 pr-2 font-mono text-slate-600 text-center">{d.runtime_us}</td>
@@ -870,7 +870,7 @@ function FaultToleranceStudio() {
                 <div key={row.src} className="flex items-start gap-2 py-2 border-b border-slate-50 last:border-0">
                   <span className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${row.status === "pass" ? "bg-emerald-400" : "bg-amber-400"}`} />
                   <div className="flex-1 min-w-0">
-                    <div className="text-[10px] font-mono text-violet-700 truncate">{row.src}</div>
+                    <div className="text-[10px] font-mono text-accent truncate">{row.src}</div>
                     <div className="text-[10px] text-slate-500 mt-0.5">{row.comp}</div>
                   </div>
                   <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${row.status === "pass" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}>
@@ -907,7 +907,7 @@ function FaultToleranceStudio() {
                   "Resolve Q2-R2 frequency collision (25.3 MHz gap)",
                 ].map((s, i) => (
                   <div key={i} className="flex items-start gap-2 text-[11px] text-slate-600 bg-slate-50 rounded-lg px-3 py-2">
-                    <Info className="w-3.5 h-3.5 text-violet-500 flex-shrink-0 mt-0.5" />
+                    <Info className="w-3.5 h-3.5 text-accent flex-shrink-0 mt-0.5" />
                     {s}
                   </div>
                 ))}

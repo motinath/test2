@@ -10,7 +10,7 @@ const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL ?? "http://localhost:5000"
 
 // ── Generic fetch helper ──────────────────────────────────────────────────────
 
-async function api<T>(path: string, options: RequestInit = {}, fallback?: T): Promise<T> {
+async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = typeof window !== "undefined" ? localStorage.getItem("qs_token") : null;
   const res = await fetch(`${BACKEND_URL}${path}`, {
     headers: {
@@ -23,6 +23,9 @@ async function api<T>(path: string, options: RequestInit = {}, fallback?: T): Pr
   if (!res.ok) {
     const msg = await res.text().catch(() => "Unknown error");
     throw new Error(`API ${res.status}: ${msg}`);
+  }
+  if (res.status === 204) {
+    return null as unknown as T;
   }
   return res.json() as Promise<T>;
 }
@@ -171,15 +174,10 @@ export async function generateChip(
   substrate?: string,
   metal?: string,
 ): Promise<GenerateResponse> {
-  try {
-    return await api<GenerateResponse>("/generate", {
-      method: "POST",
-      body: JSON.stringify({ prompt, substrate, metal }),
-    });
-  } catch (e) {
-    console.warn("Backend unavailable, falling back to client-side simulation", e);
-    return _clientSideGenerate(prompt, substrate, metal);
-  }
+  return api<GenerateResponse>("/generate", {
+    method: "POST",
+    body: JSON.stringify({ prompt, substrate, metal }),
+  });
 }
 
 // ── QCLang ────────────────────────────────────────────────────────────────────
@@ -250,53 +248,7 @@ export async function fetchMaterials(): Promise<{
   substrates: Record<string, Material>;
   metals: Record<string, Material>;
 }> {
-  try {
-    return await api("/api/materials");
-  } catch {
-    return {
-      substrates: {
-        silicon: {
-          key: "silicon",
-          label: "Silicon (Si)",
-          description: "Standard substrate",
-          epsilon_r: 11.9,
-          loss_tangent: 1e-6,
-          substrate_thickness_um: 500,
-        },
-        sapphire: {
-          key: "sapphire",
-          label: "Sapphire (Al₂O₃)",
-          description: "Ultra-low-loss substrate",
-          epsilon_r: 9.3,
-          loss_tangent: 3e-8,
-          substrate_thickness_um: 430,
-        },
-      },
-      metals: {
-        aluminum: {
-          key: "aluminum",
-          label: "Aluminum (Al)",
-          description: "Standard CQED metal",
-          Tc_K: 1.2,
-          london_penetration_depth_nm: 16,
-        },
-        niobium: {
-          key: "niobium",
-          label: "Niobium (Nb)",
-          description: "High-Tc superconductor",
-          Tc_K: 9.2,
-          london_penetration_depth_nm: 39,
-        },
-        tantalum: {
-          key: "tantalum",
-          label: "Tantalum (Ta)",
-          description: "State-of-the-art coherence",
-          Tc_K: 4.5,
-          london_penetration_depth_nm: 96,
-        },
-      },
-    };
-  }
+  return api("/api/materials");
 }
 
 // ── Projects ──────────────────────────────────────────────────────────────────
@@ -362,21 +314,16 @@ export interface VerificationReport {
 }
 
 export async function runVerification(payload: GenerateResponse): Promise<VerificationReport> {
-  try {
-    return await api<VerificationReport>("/api/verification/check", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-  } catch {
-    // Client-side fallback
-    return _clientVerify(payload);
-  }
+  return api<VerificationReport>("/api/verification/check", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 // ── Simulations ───────────────────────────────────────────────────────────────
 
-export async function fetchSimulations() {
-  return api("/api/simulations");
+export async function fetchSimulations(): Promise<any[]> {
+  return api<any[]>("/api/simulations");
 }
 
 // ── Claude ────────────────────────────────────────────────────────────────────
@@ -430,193 +377,15 @@ export async function registerUser(
   email: string,
   password: string,
   organization: string,
+  role?: string,
 ) {
   const data = await api("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ name, email, password, organization }),
+    body: JSON.stringify({ name, email, password, organization, role }),
   });
   const d = data as { access_token?: string };
   if (d.access_token && typeof window !== "undefined") {
     localStorage.setItem("qs_token", d.access_token);
   }
   return data;
-}
-
-// ── Client-side fallback generator ───────────────────────────────────────────
-// Keeps the designer working even when backend is offline.
-
-function _clientSideGenerate(
-  prompt: string,
-  substrate: string = "silicon",
-  metal: string = "aluminum",
-): Promise<GenerateResponse> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(_buildClientResult(prompt, substrate, metal)), 1800);
-  });
-}
-
-function _buildClientResult(prompt: string, substrate: string, metal: string): GenerateResponse {
-  const p = prompt.toLowerCase();
-
-  let numQubits = 5;
-  const qMatch = prompt.match(/(\d+)\s*[-\s]?\s*qubit/i) ?? prompt.match(/(\d+)\s*q\b/i);
-  if (qMatch) numQubits = Math.min(parseInt(qMatch[1]), 100);
-  else if (p.includes("surface code")) numQubits = 49;
-  else if (p.includes("heavy hex")) numQubits = 27;
-
-  let topology = "grid";
-  if (/heavy.?hex/.test(p)) topology = "heavy-hex";
-  else if (p.includes("ring")) topology = "ring";
-  else if (p.includes("chain") || p.includes("linear")) topology = "chain";
-
-  const freq = parseFloat(prompt.match(/(\d+\.?\d*)\s*ghz/i)?.[1] ?? "5.0");
-  const cols = Math.ceil(Math.sqrt(numQubits));
-
-  const qubits: PlacementQubit[] = Array.from({ length: numQubits }, (_, i) => {
-    const name = `Q${i + 1}`;
-    if (topology === "chain") return { name, x: i * 2.0, y: 0 };
-    if (topology === "ring") {
-      const a = (2 * Math.PI * i) / numQubits;
-      return {
-        name,
-        x: parseFloat((Math.cos(a) * 3).toFixed(3)),
-        y: parseFloat((Math.sin(a) * 3).toFixed(3)),
-      };
-    }
-    const r = Math.floor(i / cols),
-      c = i % cols;
-    return {
-      name,
-      x: parseFloat((c * 2 - (cols - 1)).toFixed(3)),
-      y: parseFloat((-r * 2 + (Math.ceil(numQubits / cols) - 1)).toFixed(3)),
-    };
-  });
-  const edges = _buildClientPlacementEdges(numQubits, topology);
-
-  const qubitFreqs: Record<string, number> = {};
-  const EJ: Record<string, number> = {};
-  const EC: Record<string, number> = {};
-  const resFreqs: Record<string, number> = {};
-  const resLengths: Record<string, number> = {};
-
-  for (let i = 0; i < numQubits; i++) {
-    const qName = `Q${i + 1}`;
-    const roName = `RO_${qName}`;
-    const group = i % 2 === 0;
-    qubitFreqs[qName] = parseFloat(
-      (freq + (group ? -0.1 : 0.1) + ((i * 0.013) % 0.06)).toFixed(4),
-    );
-    EJ[qName] = parseFloat((12.8 + ((i * 0.1) % 0.5)).toFixed(3));
-    EC[qName] = parseFloat((0.285 + ((i * 0.002) % 0.01)).toFixed(5));
-    resFreqs[roName] = parseFloat((qubitFreqs[qName] + 1.5 + ((i * 0.02) % 0.1)).toFixed(4));
-    resLengths[roName] = parseFloat((7.5 - ((i * 0.05) % 0.3)).toFixed(4));
-  }
-
-  const subLabels: Record<string, string> = {
-    silicon: "Silicon",
-    sapphire: "Sapphire",
-    silicon_nitride: "SiN",
-  };
-  const metLabels: Record<string, string> = {
-    aluminum: "Al",
-    niobium: "Nb",
-    tantalum: "Ta",
-    nbtin: "NbTiN",
-  };
-
-  return {
-    label: `QPU-${numQubits} · ${topology.charAt(0).toUpperCase() + topology.slice(1)}`,
-    num_qubits: numQubits,
-    topology: topology.charAt(0).toUpperCase() + topology.slice(1),
-    engine: "client-simulation",
-    interpretation: `Simulated ${numQubits}-qubit ${topology} on ${subLabels[substrate] ?? substrate}/${metLabels[metal] ?? metal}. Target: ${freq} GHz. DRC: PASS.`,
-    drc: { passed: true, violations: [] },
-    frequency_plan: {
-      epsilon_eff: substrate === "sapphire" ? 5.15 : 6.27,
-      qubit_frequencies_GHz: qubitFreqs,
-      qubit_groups: Object.fromEntries(Object.keys(qubitFreqs).map((k, i) => [k, i % 2])),
-      EJ_GHz: EJ,
-      EC_GHz: EC,
-      resonator_frequencies_GHz: resFreqs,
-      resonator_lengths_mm: resLengths,
-      detunings_GHz: Object.fromEntries(Object.keys(resFreqs).map((k) => [k, 1.5])),
-      warnings: [],
-      substrate,
-      metal,
-    },
-    placement: {
-      solver: "client",
-      topology,
-      cols,
-      rows: Math.ceil(numQubits / cols),
-      pitch_mm: 2,
-      qubits,
-      edges,
-    },
-    material: { substrate, metal },
-    code: `# Silicofeller — ${numQubits}Q ${topology} on ${substrate}/${metal}\nimport qiskit_metal as metal\nfrom qiskit_metal import designs\nfrom qiskit_metal.qlibrary.qubits.transmon_pocket import TransmonPocket\n\ndesign = designs.DesignPlanar()\ndesign.overwrite_enabled = True\n${qubits.map((q) => `${q.name.toLowerCase()} = TransmonPocket(design, '${q.name}', options=dict(pos_x='${q.x}mm', pos_y='${q.y}mm'))`).join("\n")}\ndesign.rebuild()`,
-  };
-}
-
-function _buildClientPlacementEdges(numQubits: number, topology: string): PlacementEdge[] {
-  const edges: PlacementEdge[] = [];
-  const addEdge = (a: number, b: number, label: string) => {
-    edges.push({
-      qubit_a: `Q${a + 1}`,
-      pin_a: "a",
-      qubit_b: `Q${b + 1}`,
-      pin_b: "b",
-      label,
-    });
-  };
-
-  if (topology === "chain") {
-    for (let i = 0; i < numQubits - 1; i++) addEdge(i, i + 1, `bus_chain_${i + 1}`);
-    return edges;
-  }
-
-  if (topology === "ring") {
-    for (let i = 0; i < numQubits; i++) addEdge(i, (i + 1) % numQubits, `bus_ring_${i + 1}`);
-    return edges;
-  }
-
-  if (topology === "heavy-hex") {
-    for (let i = 0; i < numQubits - 1; i++) addEdge(i, i + 1, `bus_hex_chain_${i + 1}`);
-    for (let i = 0; i + 3 < numQubits; i += 3) addEdge(i, i + 3, `bus_hex_link_${i + 1}`);
-    return edges;
-  }
-
-  const cols = Math.max(1, Math.ceil(Math.sqrt(numQubits)));
-  const rows = Math.ceil(numQubits / cols);
-  for (let i = 0; i < numQubits; i++) {
-    const r = Math.floor(i / cols);
-    const c = i % cols;
-    if (c + 1 < cols && i + 1 < numQubits) addEdge(i, i + 1, `bus_h_${i + 1}_${i + 2}`);
-    if (r + 1 < rows && i + cols < numQubits) addEdge(i, i + cols, `bus_v_${i + 1}_${i + cols + 1}`);
-  }
-  return edges;
-}
-
-function _clientVerify(payload: GenerateResponse): VerificationReport {
-  const fp = payload.frequency_plan;
-  const freqs = Object.values(fp?.qubit_frequencies_GHz ?? {}).sort((a, b) => a - b);
-  let collisions = 0;
-  for (let i = 0; i < freqs.length - 1; i++) {
-    if (freqs[i + 1] - freqs[i] < 0.05) collisions++;
-  }
-  return {
-    status: collisions > 0 ? "warning" : "passed",
-    drc_passed: payload.drc?.passed ?? true,
-    violations: payload.drc?.violations ?? [],
-    frequency_collisions: [],
-    crosstalk_warnings: [],
-    summary: {
-      total_issues: collisions,
-      critical: 0,
-      major: collisions,
-      minor: 0,
-      yield_estimate: Math.max(70, 98 - collisions * 5),
-      num_qubits: payload.num_qubits,
-    },
-  };
 }

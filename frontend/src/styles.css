@@ -1,4 +1,4 @@
-@import "tailwindcss" source(none);
+@import "tailwindcss";
 @import "tw-animate-css";
 @source "../src";
 
@@ -169,3 +169,70 @@
     letter-spacing: -0.02em;
   }
 }
+
+/* App Workspace theme override (excludes landing page) */
+.app-workspace {
+  --background: #fcfcfe; /* Pale Grey */
+  --foreground: #0f172a;
+  --surface: #ffffff;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  
+  /* Primary & Accents */
+  --primary: #928ddd; /* Perrywinkle */
+  --primary-foreground: #ffffff;
+  --secondary: #e7e9ef; /* Diamond Cut */
+  --secondary-foreground: #0f172a;
+  --muted: #e7e9ef; /* Diamond Cut */
+  --muted-foreground: #64748b;
+  --muted-foreground-soft: #94a3b8;
+  
+  /* Accents */
+  --accent: #928ddd; /* Perrywinkle */
+  --accent-foreground: #ffffff;
+  --accent-2: #b2aef2; /* Purple Illusion */
+  --accent-soft: #cac8f9; /* Lavender Blue */
+  --ring: #928ddd;
+  
+  /* Borders & Inputs */
+  --border: #e7e9ef; /* Diamond Cut for subtle dividers */
+  --input: #e7e9ef;
+  
+  /* Stonewall custom grey value */
+  --stonewall: #c3c1c1;
+
+  /* Sidebar overrides matching the white/lavender aesthetic */
+  --sidebar: #ffffff;
+  --sidebar-foreground: #475569;
+  --sidebar-primary: #928ddd; /* Perrywinkle */
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e7e9ef; /* Diamond Cut */
+  --sidebar-accent-foreground: #0f172a;
+  --sidebar-border: #e7e9ef;
+  --sidebar-ring: #928ddd;
+}
+
+/* ── Premium Custom Scrollbars ──────────────────────────────────────────────── */
+@layer base {
+  /* Global thin scrollbars */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.4);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.7); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+}
+
+/* Dark-themed code block scrollbars (match #0F172A background) */
+.dark-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
+.dark-scrollbar::-webkit-scrollbar-track { background: #0f172a; }
+.dark-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.5);
+  border-radius: 999px;
+}
+.dark-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.8); }
+.dark-scrollbar::-webkit-scrollbar-corner { background: #0f172a; }

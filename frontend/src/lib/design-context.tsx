@@ -9,6 +9,7 @@ export type Conversation = {
   updatedAt: number;
   messages: ChatMsg[];
   result: GenerateResponse | null;
+  resultsHistory?: GenerateResponse[];
 };
 
 export interface DesignContextProps {
@@ -33,11 +34,12 @@ const WELCOME: ChatMsg = {
   text: "Welcome to Silicofeller AI Quantum Designer. Describe the architecture, qubit counts, topological interfaces, or cryogenic constraints of the processor you wish to synthesize. Our solver will generate physical layouts, transmission meanders, and compile-ready Qiskit Metal code.",
 };
 
-export function newConversation(): Conversation {
+export function newConversation(index?: number): Conversation {
   const now = Date.now();
+  const label = index !== undefined ? `Untitled Project ${index + 1}` : "Untitled Project 1";
   return {
     id: `c_${now}_${Math.random().toString(36).slice(2, 7)}`,
-    title: "New Design Session",
+    title: label,
     createdAt: now,
     updatedAt: now,
     messages: [WELCOME],
@@ -55,7 +57,7 @@ export function DesignProvider({ children }: { children: React.ReactNode }) {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       const parsed: Conversation[] = raw ? JSON.parse(raw) : [];
       if (parsed.length === 0) {
-        const c = newConversation();
+        const c = newConversation(0);
         setConversations([c]);
         setActiveId(c.id);
       } else {
@@ -82,16 +84,18 @@ export function DesignProvider({ children }: { children: React.ReactNode }) {
   }, [conversations, activeId]);
 
   const handleNew = () => {
-    const c = newConversation();
-    setConversations((cs) => [c, ...cs]);
-    setActiveId(c.id);
+    setConversations((cs) => {
+      const c = newConversation(cs.length);
+      setActiveId(c.id);
+      return [c, ...cs];
+    });
   };
 
   const handleDelete = (id: string) => {
     setConversations((cs) => {
       const next = cs.filter((c) => c.id !== id);
       if (next.length === 0) {
-        const c = newConversation();
+        const c = newConversation(0);
         setActiveId(c.id);
         return [c];
       }

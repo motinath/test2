@@ -58,7 +58,12 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       const savedId = localStorage.getItem(STORAGE_KEY);
       if (savedId) {
         const found = data.find(p => p.id === savedId);
-        if (found) _setActiveProject(found);
+        if (found) {
+          _setActiveProject(found);
+        } else {
+          _setActiveProject(null);
+          try { localStorage.removeItem(STORAGE_KEY); } catch {}
+        }
       }
     } catch {
       setBackendOnline(false);

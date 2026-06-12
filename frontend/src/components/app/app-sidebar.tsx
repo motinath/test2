@@ -66,7 +66,7 @@ const NAV: { label: string | null; items: NavItem[] }[] = [
     label: "Design",
     items: [
       { title: "Projects", url: "/projects", icon: FolderKanban },
-      { title: "ChatBot", url: "/designer", icon: Sparkles },
+      { title: "Design Copilot", url: "/designer", icon: Sparkles },
       { title: "Architecture Explorer", url: "/architecture-explorer", icon: Network },
       { title: "Schematic Editor", url: "/schematic-editor", icon: PenSquare },
       { title: "Layout Viewer", url: "/layout-viewer", icon: LayoutTemplate },
@@ -76,10 +76,10 @@ const NAV: { label: string | null; items: NavItem[] }[] = [
   {
     label: "Simulation & Analysis",
     items: [
-      { title: "Verification", url: "/verification", icon: CheckCircle2, badge: "12" },
+      { title: "Verification", url: "/verification", icon: CheckCircle2 },
       { title: "Simulations", url: "/simulations", icon: PlayCircle },
       { title: "Physics Analysis", url: "/physics-analysis", icon: Atom },
-      { title: "Fault Tolerance Studio", url: "/fault-tolerance", icon: Shield, badge: "NEW" },
+      { title: "Fault Tolerance Studio", url: "/fault-tolerance", icon: Shield },
       
     ],
   },
@@ -122,32 +122,20 @@ export function AppSidebar() {
             </span>
           ) : (
             <SilicofellerLogo
-              className="brightness-0 invert scale-[1.2] "
+              className="brightness-0 scale-[1.2]"
               iconClassName="h-16"
             />
           )}
         </Link>
       </SidebarHeader>
 
-      {/* Active project badge */}
-      {activeProject && !collapsed && (
-        <Link
-          to="/projects"
-          className="flex items-center gap-2 px-4 py-2 border-b border-sidebar-border bg-white/5 hover:bg-white/10 transition-colors"
-        >
-          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 animate-pulse" />
-          <span className="text-[10px] font-bold text-sidebar-foreground/60 truncate flex-1">
-            {activeProject.name.slice(0, 22)}
-          </span>
-          <span className="text-[9px] text-sidebar-foreground/30 font-bold">ACTIVE</span>
-        </Link>
-      )}
+
 
       <SidebarContent className="py-3 flex-1 overflow-y-auto">
         {NAV.map((group, gi) => (
           <SidebarGroup key={gi} className="px-0 py-1.5">
             {group.label && !collapsed && (
-              <SidebarGroupLabel className="text-[10px] font-bold uppercase tracking-[0.14em] text-sidebar-foreground/45 px-5 mb-1.5">
+              <SidebarGroupLabel className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-sidebar-foreground/80 px-5 mb-1.5">
                 {group.label}
               </SidebarGroupLabel>
             )}
@@ -164,12 +152,12 @@ export function AppSidebar() {
                         className={`h-9 rounded-lg transition-colors ${
                           isActive
                             ? "bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary hover:text-sidebar-primary-foreground font-semibold shadow-sm shadow-sidebar-primary/20"
-                            : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                            : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground font-medium"
                         }`}
                       >
                         <Link to={item.url} className="flex items-center gap-3 w-full">
                           <item.icon
-                            className={`h-4 w-4 shrink-0 ${isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground/50"}`}
+                            className={`h-4 w-4 shrink-0 ${isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground/75"}`}
                           />
                           {!collapsed && (
                             <>
@@ -211,11 +199,11 @@ export function AppSidebar() {
                     className={`h-9 rounded-lg ${
                       pathname === "/admin"
                         ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                        : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground font-medium"
                     }`}
                   >
                     <Link to="/admin" className="flex items-center gap-3">
-                      <ShieldCheck className="h-4 w-4 shrink-0" />
+                      <ShieldCheck className="h-4 w-4 shrink-0 text-sidebar-foreground/75" />
                       {!collapsed && <span className="text-[13px]">Admin Console</span>}
                     </Link>
                   </SidebarMenuButton>
@@ -238,20 +226,20 @@ export function AppSidebar() {
               {!collapsed && (
                 <>
                   <div className="flex flex-col truncate min-w-0 flex-1">
-                    <span className="truncate text-white font-semibold text-[13px]">
+                    <span className="truncate text-slate-900 font-bold text-[13px]">
                       {user?.name}
                     </span>
-                    <span className="truncate text-[10px] text-sidebar-foreground/50 font-medium">
+                    <span className="truncate text-[10px] text-sidebar-foreground/80 font-medium">
                       {user?.role}
                     </span>
                   </div>
-                  <ChevronUp className="h-3.5 w-3.5 text-sidebar-foreground/50 shrink-0" />
+                  <ChevronUp className="h-3.5 w-3.5 text-sidebar-foreground/70 shrink-0" />
                 </>
               )}
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52 rounded-xl">
-            <DropdownMenuLabel className="px-3 py-2 text-[10px] uppercase tracking-wider text-slate-400">
+            <DropdownMenuLabel className="px-3 py-2 text-[10px] uppercase tracking-wider text-slate-500 font-bold">
               Account
             </DropdownMenuLabel>
             <DropdownMenuSeparator />

@@ -125,7 +125,7 @@ function LandingPage() {
                 asChild
                 className="h-12 rounded-full bg-foreground px-6 text-sm font-semibold text-background hover:bg-foreground/90"
               >
-                <Link to="/designer">
+                <Link to={user ? "/dashboard" : "/designer"}>
                   Start designing <ArrowRight className="ml-1.5 h-4 w-4" />
                 </Link>
               </Button>
@@ -478,7 +478,7 @@ function SiteNav({
                 asChild
                 className="h-9 rounded-full bg-foreground px-4 text-sm font-semibold text-background hover:bg-foreground/90"
               >
-                <Link to="/designer">Open designer</Link>
+                <Link to="/dashboard">Open designer</Link>
               </Button>
             </>
           ) : (

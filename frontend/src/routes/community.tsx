@@ -38,7 +38,7 @@ const fadeUp = {
     y: 0,
     transition: { duration: 0.5, delay: i * 0.05, ease: "easeOut" },
   }),
-};
+} as any;
 
 function CSection({
   children,

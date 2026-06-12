@@ -62,8 +62,8 @@ function SignInPage() {
     }
   };
 
-  const quickLogin = (role: Role) => {
-    signInAs(role);
+  const quickLogin = async (role: Role) => {
+    await signInAs(role);
     const acct = DEMO_ACCOUNTS.find((a) => a.role === role);
     toast.success(`Signed in as ${acct?.name}`);
     navigate({ to: "/" });

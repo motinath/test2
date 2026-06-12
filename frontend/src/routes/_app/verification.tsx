@@ -179,11 +179,6 @@ function VerificationPage() {
                 <div className="flex items-center justify-center gap-2 mt-1 text-xs text-slate-500">
                   <Cpu className="h-3.5 w-3.5" />
                   {activeConversation?.title} · {activeConversation?.result?.num_qubits}Q
-                  {activeProject && (
-                    <Badge variant="outline" className="rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 border-emerald-200">
-                      Will save to DB
-                    </Badge>
-                  )}
                 </div>
                 <Button onClick={run} className="mt-4 rounded-xl bg-accent text-white text-xs font-bold">
                   <Zap className="mr-1.5 h-3.5 w-3.5" /> Run Verification

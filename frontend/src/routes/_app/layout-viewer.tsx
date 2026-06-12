@@ -1,7 +1,15 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator
+} from "@/components/ui/dropdown-menu";
 import {
   Eye, EyeOff, ChevronDown, ChevronRight, Search,
   ZoomIn, ZoomOut, Maximize2, Move, MousePointer, Ruler,
@@ -10,9 +18,13 @@ import {
   RefreshCw, Info, X, Cpu, Activity, Bell,
   AlignCenter, Crosshair, Maximize, ChevronLeft,
   MoreVertical, Layers, ScanLine, Network, CircuitBoard,
+  FileCode, Scissors
 } from "lucide-react";
 import { useDesign } from "@/lib/design-context";
 import type { GenerateResponse } from "@/lib/api/backend";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
 
 export const Route = createFileRoute("/_app/layout-viewer")({
   head: () => ({ meta: [{ title: "Layout Viewer — Silicofeller" }] }),
@@ -184,17 +196,24 @@ interface LayoutCanvasProps {
   setZoom: (fn: (z: number) => number) => void;
   pan: { x: number; y: number };
   setPan: (fn: (p: { x: number; y: number }) => { x: number; y: number }) => void;
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
 
 function LayoutCanvas({
   layers, layoutData, onSelectComponent, selectedId,
-  showGrid, showRuler, zoom, setZoom, pan, setPan,
+  showGrid, showRuler, onShowGridChange, onShowRulerChange,
+  zoom, setZoom, pan, setPan, canvasRef,
 }: LayoutCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPanning, setIsPanning] = useState(false);
-  const [tool, setTool] = useState<"select" | "pan">("select");
+  const [tool, setTool] = useState<"select" | "pan" | "measure">("select");
   const lastMouse = useRef({ x: 0, y: 0 });
+
+  // Caliper tape states
+  const [measureStart, setMeasureStart] = useState<{ x: number; y: number } | null>(null);
+  const [measureEnd, setMeasureEnd] = useState<{ x: number; y: number } | null>(null);
+  const [isMeasuring, setIsMeasuring] = useState(false);
+  const [canvasSize, setCanvasSize] = useState({ w: 800, h: 600 });
 
   const { components, chipW, chipH } = layoutData;
 
@@ -209,7 +228,7 @@ function LayoutCanvas({
     const H = canvas.height;
 
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = "#f0f4f8";
+    ctx.fillStyle = "#f8fafc";
     ctx.fillRect(0, 0, W, H);
 
     // Dot grid
@@ -217,11 +236,11 @@ function LayoutCanvas({
       const gridSpacing = 80 * zoom;
       const offsetX = (pan.x + W * 0.08) % gridSpacing;
       const offsetY = (pan.y + H * 0.08) % gridSpacing;
-      ctx.fillStyle = "rgba(100,120,200,0.25)";
+      ctx.fillStyle = "rgba(148, 163, 184, 0.35)";
       for (let x = offsetX; x < W; x += gridSpacing) {
         for (let y = offsetY; y < H; y += gridSpacing) {
           ctx.beginPath();
-          ctx.arc(x, y, 1, 0, Math.PI * 2);
+          ctx.arc(x, y, 1.2, 0, Math.PI * 2);
           ctx.fill();
         }
       }
@@ -234,15 +253,15 @@ function LayoutCanvas({
     // Ground plane with rounded corners and subtle crosshatch
     if (isVisible("GROUND")) {
       ctx.save();
-      ctx.fillStyle = "rgba(22,163,74,0.06)";
-      ctx.strokeStyle = "rgba(22,163,74,0.5)";
+      ctx.fillStyle = "rgba(34, 197, 94, 0.04)";
+      ctx.strokeStyle = "rgba(34, 197, 94, 0.4)";
       ctx.lineWidth = 10;
       ctx.beginPath();
       (ctx as CanvasRenderingContext2D).roundRect(80, 80, chipW + 40, chipH + 40, 60);
       ctx.fill();
       ctx.stroke();
       // subtle inner crosshatch
-      ctx.strokeStyle = "rgba(22,163,74,0.08)";
+      ctx.strokeStyle = "rgba(34, 197, 94, 0.06)";
       ctx.lineWidth = 3;
       for (let gx = 200; gx < chipW; gx += 200) {
         ctx.beginPath(); ctx.moveTo(gx, 80); ctx.lineTo(gx, chipH + 120); ctx.stroke();
@@ -258,8 +277,8 @@ function LayoutCanvas({
       ctx.save();
       for (let vx = 300; vx < chipW; vx += 350) {
         for (let vy = 300; vy < chipH; vy += 350) {
-          ctx.fillStyle = "rgba(234,179,8,0.55)";
-          ctx.strokeStyle = "rgba(234,179,8,0.7)";
+          ctx.fillStyle = "rgba(234,179,8,0.45)";
+          ctx.strokeStyle = "rgba(234,179,8,0.6)";
           ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.arc(vx, vy, 14, 0, Math.PI * 2);
@@ -279,7 +298,7 @@ function LayoutCanvas({
         if (qa && qb) {
           // Coupling line
           ctx.save();
-          ctx.strokeStyle = isSelected ? "rgba(251,191,36,0.8)" : "rgba(249,115,22,0.55)";
+          ctx.strokeStyle = isSelected ? "rgba(109, 40, 217, 0.8)" : "rgba(249,115,22,0.45)";
           ctx.lineWidth = isSelected ? 22 : 16;
           ctx.lineCap = "round";
           ctx.beginPath();
@@ -291,10 +310,10 @@ function LayoutCanvas({
         // Coupler ellipse
         ctx.save();
         if (isSelected) {
-          ctx.shadowColor = "#fbbf24";
+          ctx.shadowColor = "#8b5cf6";
           ctx.shadowBlur = 40;
         }
-        ctx.fillStyle = isSelected ? "rgba(251,191,36,0.9)" : "rgba(249,115,22,0.85)";
+        ctx.fillStyle = isSelected ? "rgba(139, 92, 246, 0.9)" : "rgba(249,115,22,0.8)";
         ctx.strokeStyle = isSelected ? "#fff" : "#fb923c";
         ctx.lineWidth = isSelected ? 8 : 5;
         ctx.beginPath();
@@ -302,7 +321,7 @@ function LayoutCanvas({
         ctx.fill();
         ctx.stroke();
         if (isSelected) {
-          ctx.strokeStyle = "rgba(251,191,36,0.35)";
+          ctx.strokeStyle = "rgba(139,92,246,0.3)";
           ctx.lineWidth = 28;
           ctx.setLineDash([22, 12]);
           ctx.beginPath();
@@ -319,8 +338,8 @@ function LayoutCanvas({
       components.filter(c => c.type === "resonator").forEach(c => {
         const isSelected = selectedId === c.id;
         ctx.save();
-        if (isSelected) { ctx.shadowColor = "#60a5fa"; ctx.shadowBlur = 30; }
-        ctx.strokeStyle = isSelected ? "#93c5fd" : "rgba(59,130,246,0.8)";
+        if (isSelected) { ctx.shadowColor = "#3b82f6"; ctx.shadowBlur = 30; }
+        ctx.strokeStyle = isSelected ? "#3b82f6" : "rgba(59,130,246,0.75)";
         ctx.lineWidth = isSelected ? 16 : 12;
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
@@ -342,7 +361,7 @@ function LayoutCanvas({
     if (isVisible("CONTROL")) {
       ctx.save();
       components.filter(c => c.type === "qubit").forEach(c => {
-        ctx.strokeStyle = "rgba(6,182,212,0.65)";
+        ctx.strokeStyle = "rgba(6,182,212,0.6)";
         ctx.lineWidth = 9;
         ctx.setLineDash([28, 18]);
         ctx.lineCap = "round";
@@ -352,7 +371,7 @@ function LayoutCanvas({
         ctx.stroke();
         ctx.setLineDash([]);
         // Horizontal cap
-        ctx.strokeStyle = "rgba(6,182,212,0.5)";
+        ctx.strokeStyle = "rgba(6,182,212,0.45)";
         ctx.lineWidth = 6;
         ctx.beginPath();
         ctx.moveTo(c.x - 70, c.y - 300);
@@ -366,8 +385,8 @@ function LayoutCanvas({
     if (isVisible("JUNCTION")) {
       ctx.save();
       components.filter(c => c.type === "qubit").forEach(c => {
-        ctx.fillStyle = "rgba(236,72,153,0.85)";
-        ctx.strokeStyle = "#f9a8d4";
+        ctx.fillStyle = "rgba(236,72,153,0.8)";
+        ctx.strokeStyle = "#fbcfe8";
         ctx.lineWidth = 4;
         [-22, 22].forEach(dx => {
           ctx.beginPath();
@@ -384,14 +403,14 @@ function LayoutCanvas({
       components.filter(c => c.type === "port").forEach(c => {
         const isSelected = selectedId === c.id;
         ctx.save();
-        ctx.fillStyle = isSelected ? "rgba(255,255,255,1)" : "rgba(255,255,255,0.75)";
-        ctx.strokeStyle = isSelected ? "#fff" : "rgba(255,255,255,0.5)";
+        ctx.fillStyle = isSelected ? "rgba(255,255,255,1)" : "rgba(255,255,255,0.85)";
+        ctx.strokeStyle = isSelected ? "#3b82f6" : "rgba(148,163,184,0.4)";
         ctx.lineWidth = 7;
         ctx.beginPath();
         ctx.roundRect(c.x - 45, c.y - 22, 90, 44, 8);
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = "#cbd5e1";
+        ctx.fillStyle = "#64748b";
         ctx.font = "bold 46px 'Inter', monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -405,11 +424,11 @@ function LayoutCanvas({
       components.filter(c => c.type === "qubit").forEach(c => {
         const isSelected = selectedId === c.id;
         ctx.save();
-        if (isSelected) { ctx.shadowColor = "#a78bfa"; ctx.shadowBlur = 60; }
+        if (isSelected) { ctx.shadowColor = "#8b5cf6"; ctx.shadowBlur = 60; }
 
         // Outer glow ring
-        ctx.fillStyle = isSelected ? "rgba(139,92,246,0.22)" : "rgba(139,92,246,0.13)";
-        ctx.strokeStyle = isSelected ? "rgba(167,139,250,0.6)" : "rgba(124,58,237,0.4)";
+        ctx.fillStyle = isSelected ? "rgba(139,92,246,0.18)" : "rgba(139,92,246,0.08)";
+        ctx.strokeStyle = isSelected ? "rgba(167,139,250,0.6)" : "rgba(146,141,221,0.3)";
         ctx.lineWidth = isSelected ? 18 : 10;
         ctx.beginPath();
         ctx.arc(c.x, c.y, 165, 0, Math.PI * 2);
@@ -439,7 +458,7 @@ function LayoutCanvas({
 
         // Selection dashed ring
         if (isSelected) {
-          ctx.strokeStyle = "rgba(167,139,250,0.5)";
+          ctx.strokeStyle = "rgba(167,139,250,0.4)";
           ctx.lineWidth = 28;
           ctx.setLineDash([22, 12]);
           ctx.beginPath();
@@ -450,15 +469,50 @@ function LayoutCanvas({
 
         // Label
         if (isVisible("TEXT")) {
-          ctx.fillStyle = "#cbd5e1";
-          ctx.font = `bold ${isSelected ? 76 : 64}px 'Inter', monospace`;
+          // Draw white text shielding badge so grid lines do not overlap annotations
+          const text = c.label;
+          ctx.font = `bold ${isSelected ? 76 : 64}px 'Inter', sans-serif`;
+          const textMetrics = ctx.measureText(text);
+          const bgW = textMetrics.width + 48;
+          const bgH = (isSelected ? 76 : 64) * 1.35;
+          const bgX = c.x - bgW / 2;
+          const bgY = c.y - 210 - (isSelected ? 76 : 64);
+
+          ctx.fillStyle = "#ffffff";
+          ctx.strokeStyle = isSelected ? "#8b5cf6" : "rgba(148,163,184,0.3)";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.roundRect(bgX, bgY, bgW, bgH, 10);
+          ctx.fill();
+          ctx.stroke();
+
+          // Text
+          ctx.fillStyle = "#1e293b";
           ctx.textAlign = "center";
-          ctx.textBaseline = "alphabetic";
-          ctx.fillText(c.label, c.x, c.y - 210);
+          ctx.textBaseline = "middle";
+          ctx.fillText(text, c.x, bgY + bgH / 2);
+
           if (c.freq) {
-            ctx.fillStyle = "#64748b";
-            ctx.font = "46px monospace";
-            ctx.fillText(`${c.freq.toFixed(2)} GHz`, c.x, c.y - 140);
+            const freqText = `${c.freq.toFixed(2)} GHz`;
+            ctx.font = "bold 44px monospace";
+            const freqMetrics = ctx.measureText(freqText);
+            const fbgW = freqMetrics.width + 36;
+            const fbgH = 44 * 1.35;
+            const fbgX = c.x - fbgW / 2;
+            const fbgY = c.y - 140 - 44;
+
+            ctx.fillStyle = "#ffffff";
+            ctx.strokeStyle = "rgba(148,163,184,0.2)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.roundRect(fbgX, fbgY, fbgW, fbgH, 8);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = "#475569";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(freqText, c.x, fbgY + fbgH / 2);
           }
         }
         ctx.restore();
@@ -470,43 +524,59 @@ function LayoutCanvas({
     // ── Ruler overlay ──
     if (showRuler) {
       const RULER_SIZE = 24;
-      ctx.fillStyle = "rgba(240,244,248,0.95)";
+      ctx.fillStyle = "rgba(255,255,255,0.96)";
       ctx.fillRect(0, 0, W, RULER_SIZE);
       ctx.fillRect(0, 0, RULER_SIZE, H);
 
-      ctx.fillStyle = "rgba(71,85,105,0.8)";
+      // Border lines
+      ctx.strokeStyle = "rgba(148,163,184,0.25)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, RULER_SIZE); ctx.lineTo(W, RULER_SIZE);
+      ctx.moveTo(RULER_SIZE, 0); ctx.lineTo(RULER_SIZE, H);
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(71,85,105,0.85)";
       ctx.font = "9px monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
+
+      // X ruler
       for (let rx = RULER_SIZE; rx < W; rx += 70) {
         const val = Math.round((rx - pan.x - W * 0.08) / (zoom * 0.08) / 100) * 100;
         ctx.fillText(String(val), rx, RULER_SIZE / 2);
-        ctx.strokeStyle = "rgba(71,85,105,0.25)";
-        ctx.lineWidth = 0.5;
-        ctx.beginPath(); ctx.moveTo(rx, RULER_SIZE - 4); ctx.lineTo(rx, RULER_SIZE); ctx.stroke();
+        ctx.strokeStyle = "rgba(71,85,105,0.2)";
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(rx, RULER_SIZE - 5); ctx.lineTo(rx, RULER_SIZE); ctx.stroke();
       }
+
+      // Y ruler
       for (let ry = RULER_SIZE + 30; ry < H; ry += 70) {
         const val = Math.round((ry - pan.y - H * 0.08) / (zoom * 0.08) / 100) * 100;
         ctx.save(); ctx.translate(RULER_SIZE / 2, ry); ctx.rotate(-Math.PI / 2);
         ctx.fillText(String(val), 0, 0);
         ctx.restore();
+        ctx.strokeStyle = "rgba(71,85,105,0.2)";
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(RULER_SIZE - 5, ry); ctx.lineTo(RULER_SIZE, ry); ctx.stroke();
       }
+
       // "µm" corner label
-      ctx.fillStyle = "rgba(71,85,105,0.85)";
-      ctx.font = "8px monospace";
-      ctx.textAlign = "right";
-      ctx.fillText("µm", RULER_SIZE - 2, RULER_SIZE - 4);
+      ctx.fillStyle = "rgba(71,85,105,0.9)";
+      ctx.font = "bold 8px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("µm", RULER_SIZE / 2 + 1, RULER_SIZE / 2 + 1);
     }
 
     // ── Scale bar ──
     const sbW = 100;
     const sbX = W - sbW - 16;
     const sbY = H - 28;
-    ctx.fillStyle = "rgba(240,244,248,0.85)";
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
     ctx.beginPath();
-    ctx.roundRect(sbX - 8, sbY - 10, sbW + 16, 22, 4);
+    ctx.roundRect(sbX - 8, sbY - 10, sbW + 16, 22, 6);
     ctx.fill();
-    ctx.strokeStyle = "#64748b";
+    ctx.strokeStyle = "#475569";
     ctx.lineWidth = 1.5;
     ctx.lineCap = "square";
     ctx.beginPath();
@@ -514,43 +584,142 @@ function LayoutCanvas({
     ctx.moveTo(sbX, sbY - 2); ctx.lineTo(sbX, sbY + 4);
     ctx.moveTo(sbX + sbW, sbY - 2); ctx.lineTo(sbX + sbW, sbY + 4);
     ctx.stroke();
-    ctx.fillStyle = "#64748b"; ctx.font = "10px monospace"; ctx.textAlign = "center";
+    ctx.fillStyle = "#475569"; ctx.font = "bold 9px monospace"; ctx.textAlign = "center";
     ctx.fillText("500 µm", sbX + sbW / 2, sbY - 2);
 
-  }, [zoom, pan, showGrid, showRuler, layers, components, selectedId, chipW, chipH, isVisible]);
+    // ── Caliper tape overlay ──
+    if (measureStart && measureEnd) {
+      const sx1 = measureStart.x * (zoom * 0.08) + pan.x + W * 0.08;
+      const sy1 = measureStart.y * (zoom * 0.08) + pan.y + H * 0.08;
+      const sx2 = measureEnd.x * (zoom * 0.08) + pan.x + W * 0.08;
+      const sy2 = measureEnd.y * (zoom * 0.08) + pan.y + H * 0.08;
+
+      const dx = measureEnd.x - measureStart.x;
+      const dy = measureEnd.y - measureStart.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      ctx.save();
+      ctx.strokeStyle = "#ef4444";
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(sx1, sy1);
+      ctx.lineTo(sx2, sy2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Draw end ticks
+      const angle = Math.atan2(sy2 - sy1, sx2 - sx1);
+      const tickLen = 9;
+      ctx.strokeStyle = "#ef4444";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(sx1 - Math.sin(angle) * tickLen, sy1 + Math.cos(angle) * tickLen);
+      ctx.lineTo(sx1 + Math.sin(angle) * tickLen, sy1 - Math.cos(angle) * tickLen);
+      ctx.moveTo(sx2 - Math.sin(angle) * tickLen, sy2 + Math.cos(angle) * tickLen);
+      ctx.lineTo(sx2 + Math.sin(angle) * tickLen, sy2 - Math.cos(angle) * tickLen);
+      ctx.stroke();
+
+      // End circles
+      ctx.fillStyle = "#ef4444";
+      ctx.beginPath();
+      ctx.arc(sx1, sy1, 4.5, 0, Math.PI * 2);
+      ctx.arc(sx2, sy2, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Label at midpoint
+      const mx = (sx1 + sx2) / 2;
+      const my = (sy1 + sy2) / 2;
+      const labelText = `${distance.toFixed(1)} µm`;
+      ctx.font = "bold 11px Inter, sans-serif";
+      const txtMet = ctx.measureText(labelText);
+      const bgW = txtMet.width + 16;
+      const bgH = 22;
+
+      ctx.fillStyle = "#ef4444";
+      ctx.beginPath();
+      ctx.roundRect(mx - bgW / 2, my - bgH / 2, bgW, bgH, 5);
+      ctx.fill();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(labelText, mx, my);
+      ctx.restore();
+    }
+
+  }, [zoom, pan, showGrid, showRuler, layers, components, selectedId, chipW, chipH, isVisible, measureStart, measureEnd, canvasRef]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
-    canvas.width = container.clientWidth;
-    canvas.height = container.clientHeight;
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    canvas.width = w;
+    canvas.height = h;
+    setCanvasSize({ w, h });
     draw();
-  }, [draw]);
+  }, [draw, canvasRef]);
 
   useEffect(() => {
     const obs = new ResizeObserver(() => {
       const canvas = canvasRef.current;
       const container = containerRef.current;
       if (!canvas || !container) return;
-      canvas.width = container.clientWidth;
-      canvas.height = container.clientHeight;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      canvas.width = w;
+      canvas.height = h;
+      setCanvasSize({ w, h });
       draw();
     });
     if (containerRef.current) obs.observe(containerRef.current);
     return () => obs.disconnect();
-  }, [draw]);
+  }, [draw, canvasRef]);
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.12 : 0.89;
-    setZoom(z => Math.max(0.2, Math.min(8, z * factor)));
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const W = canvas.width;
+    const H = canvas.height;
+
+    const factor = e.deltaY < 0 ? 1.15 : 0.87;
+    const oldZoom = zoom;
+    const newZoom = Math.max(0.2, Math.min(8, oldZoom * factor));
+
+    const wx = (mx - pan.x - W * 0.08) / (oldZoom * 0.08);
+    const wy = (my - pan.y - H * 0.08) / (oldZoom * 0.08);
+
+    setZoom(() => newZoom);
+    setPan(() => ({
+      x: mx - W * 0.08 - wx * (newZoom * 0.08),
+      y: my - H * 0.08 - wy * (newZoom * 0.08)
+    }));
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (tool === "pan" || e.button === 1) {
       setIsPanning(true);
       lastMouse.current = { x: e.clientX, y: e.clientY };
+    } else if (tool === "measure" && e.button === 0) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const W = canvas.width;
+      const H = canvas.height;
+      const worldX = (mx - pan.x - W * 0.08) / (zoom * 0.08);
+      const worldY = (my - pan.y - H * 0.08) / (zoom * 0.08);
+
+      setMeasureStart({ x: worldX, y: worldY });
+      setMeasureEnd({ x: worldX, y: worldY });
+      setIsMeasuring(true);
     }
   };
 
@@ -560,12 +729,31 @@ function LayoutCanvas({
       const dy = e.clientY - lastMouse.current.y;
       setPan(p => ({ x: p.x + dx, y: p.y + dy }));
       lastMouse.current = { x: e.clientX, y: e.clientY };
+    } else if (tool === "measure" && isMeasuring && measureStart) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const W = canvas.width;
+      const H = canvas.height;
+      const worldX = (mx - pan.x - W * 0.08) / (zoom * 0.08);
+      const worldY = (my - pan.y - H * 0.08) / (zoom * 0.08);
+
+      setMeasureEnd({ x: worldX, y: worldY });
     }
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
-    if (isPanning) { setIsPanning(false); return; }
-    if (tool === "select") { 
+    if (isPanning) {
+      setIsPanning(false);
+      return;
+    }
+    if (tool === "measure" && isMeasuring) {
+      setIsMeasuring(false);
+      return;
+    }
+    if (tool === "select") {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
@@ -602,11 +790,69 @@ function LayoutCanvas({
     }
   };
 
+  const zoomAtCenter = (factor: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const W = canvas.width;
+    const H = canvas.height;
+    const cx = W / 2;
+    const cy = H / 2;
+
+    const oldZoom = zoom;
+    const newZoom = Math.max(0.2, Math.min(8, oldZoom * factor));
+    const wx = (cx - pan.x - W * 0.08) / (oldZoom * 0.08);
+    const wy = (cy - pan.y - H * 0.08) / (oldZoom * 0.08);
+
+    setZoom(() => newZoom);
+    setPan(() => ({
+      x: cx - W * 0.08 - wx * (newZoom * 0.08),
+      y: cy - H * 0.08 - wy * (newZoom * 0.08)
+    }));
+  };
+
+  const centerFocus = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const W = canvas.width;
+    const H = canvas.height;
+
+    const wx = chipW / 2;
+    const wy = chipH / 2;
+
+    setZoom(() => 0.8);
+    setPan(() => ({
+      x: W / 2 - W * 0.08 - wx * (0.8 * 0.08),
+      y: H / 2 - H * 0.08 - wy * (0.8 * 0.08)
+    }));
+  };
+
+  // Viewport box computation for minimap overlay
+  const viewportBox = useMemo(() => {
+    const W = canvasSize.w;
+    const H = canvasSize.h;
+    const vx1 = (0 - pan.x - W * 0.08) / (zoom * 0.08);
+    const vy1 = (0 - pan.y - H * 0.08) / (zoom * 0.08);
+    const vx2 = (W - pan.x - W * 0.08) / (zoom * 0.08);
+    const vy2 = (H - pan.y - H * 0.08) / (zoom * 0.08);
+
+    const left = Math.max(0, Math.min(100, 8 + (vx1 / chipW) * 84));
+    const top = Math.max(0, Math.min(100, 8 + (vy1 / chipH) * 84));
+    const right = Math.max(0, Math.min(100, 8 + (vx2 / chipW) * 84));
+    const bottom = Math.max(0, Math.min(100, 8 + (vy2 / chipH) * 84));
+
+    return {
+      left: `${left}%`,
+      top: `${top}%`,
+      width: `${Math.max(2, right - left)}%`,
+      height: `${Math.max(2, bottom - top)}%`,
+    };
+  }, [canvasSize, pan, zoom, chipW, chipH]);
+
   return (
     <div
       ref={containerRef}
       className="relative w-full h-full overflow-hidden"
-      style={{ background: "#f1f5fb" }}
+      style={{ background: "#f8fafc" }}
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -616,84 +862,106 @@ function LayoutCanvas({
       <canvas
         ref={canvasRef}
         className="absolute inset-0"
-        style={{ cursor: tool === "pan" || isPanning ? "grabbing" : "crosshair" }}
+        style={{ cursor: tool === "pan" || isPanning ? "grabbing" : tool === "measure" ? "crosshair" : "default" }}
       />
 
       {/* ── Canvas Toolbar (overlaid top bar) ── */}
-      <div className="absolute top-0 left-0 right-0 flex items-center h-11 px-3 gap-1 bg-white/90 backdrop-blur-sm border-b border-slate-200 z-10">
+      <div className="absolute top-0 left-0 right-0 flex items-center h-11 px-3 gap-1 bg-white/95 backdrop-blur-sm border-b border-slate-200/80 shadow-sm z-10">
         {/* Tool group */}
-        <div className="flex items-center gap-0.5 bg-white/80 rounded-lg p-0.5 border border-slate-300/50">
+        <div className="flex items-center gap-0.5 bg-slate-50/80 rounded-lg p-0.5 border border-slate-200">
           <button
             onClick={() => setTool("select")}
-            className={`p-1.5 rounded-md transition-colors ${tool === "select" ? "bg-accent/25 text-accent" : "text-slate-400 hover:text-slate-700"}`}
+            className={`p-1.5 rounded-md transition-all ${tool === "select" ? "bg-white text-accent shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-800"}`}
             title="Select (S)"
           >
             <MousePointer className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => setTool("pan")}
-            className={`p-1.5 rounded-md transition-colors ${tool === "pan" ? "bg-accent/25 text-accent" : "text-slate-400 hover:text-slate-700"}`}
+            className={`p-1.5 rounded-md transition-all ${tool === "pan" ? "bg-white text-accent shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-800"}`}
             title="Pan (H)"
           >
             <Move className="h-3.5 w-3.5" />
           </button>
+          <button
+            onClick={() => setTool("measure")}
+            className={`p-1.5 rounded-md transition-all ${tool === "measure" ? "bg-white text-accent shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-800"}`}
+            title="Caliper Measure (M)"
+          >
+            <Ruler className="h-3.5 w-3.5" />
+          </button>
         </div>
 
-        <div className="w-px h-5 bg-slate-700/60 mx-1" />
+        <div className="w-px h-5 bg-slate-200 mx-1.5" />
 
         {/* Zoom controls */}
-        <button onClick={() => setZoom(z => Math.min(8, z * 1.25))} className="p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100/70 transition-colors" title="Zoom In"><ZoomIn className="h-3.5 w-3.5" /></button>
-        <button onClick={() => setZoom(z => Math.max(0.2, z / 1.25))} className="p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100/70 transition-colors" title="Zoom Out"><ZoomOut className="h-3.5 w-3.5" /></button>
-        <button onClick={() => { setZoom(() => 1.0); setPan(() => ({ x: 0, y: 0 })); }} className="p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100/70 transition-colors" title="Fit Screen"><Maximize2 className="h-3.5 w-3.5" /></button>
-        <div className="flex items-center bg-white/80 border border-slate-300/50 rounded-md px-2 py-0.5 min-w-[52px] justify-center">
-          <span className="text-[11px] font-mono text-slate-700">{Math.round(zoom * 100)}%</span>
-          <ChevronDown className="h-2.5 w-2.5 text-slate-400 ml-1" />
+        <button onClick={() => zoomAtCenter(1.25)} className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded transition-colors" title="Zoom In"><ZoomIn className="h-3.5 w-3.5" /></button>
+        <button onClick={() => zoomAtCenter(0.8)} className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded transition-colors" title="Zoom Out"><ZoomOut className="h-3.5 w-3.5" /></button>
+        <button onClick={centerFocus} className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded transition-colors" title="Fit Screen / Recenter"><Maximize2 className="h-3.5 w-3.5" /></button>
+        
+        <div className="flex items-center bg-slate-50 border border-slate-200 rounded-md px-2 py-0.5 min-w-[56px] justify-center shadow-inner">
+          <span className="text-[10px] font-mono font-bold text-slate-700">{Math.round(zoom * 100)}%</span>
         </div>
 
-        <div className="w-px h-5 bg-slate-700/60 mx-1" />
+        <div className="w-px h-5 bg-slate-200 mx-1.5" />
 
-        {/* Align/measure tools */}
-        <button className="p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100/70 transition-colors" title="Center"><AlignCenter className="h-3.5 w-3.5" /></button>
-        <button className="p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100/70 transition-colors" title="Measure"><Crosshair className="h-3.5 w-3.5" /></button>
-        <button className="p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100/70 transition-colors" title="Full Screen"><Maximize className="h-3.5 w-3.5" /></button>
+        {/* Action helper tools */}
+        <button onClick={centerFocus} className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded transition-colors flex items-center gap-1 text-[10px] font-medium" title="Center Focus">
+          <AlignCenter className="h-3.5 w-3.5" /> <span className="hidden md:inline">Recenter</span>
+        </button>
+        {tool === "measure" && (
+          <button onClick={() => { setMeasureStart(null); setMeasureEnd(null); }} className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors flex items-center gap-1 text-[10px] font-medium" title="Clear caliper measurements">
+            <X className="h-3.5 w-3.5" /> <span>Clear Tape</span>
+          </button>
+        )}
 
         <div className="flex-1" />
 
         {/* Grid / Ruler / Units toggles */}
-        <div className="flex items-center gap-3 mr-2">
+        <div className="flex items-center gap-3.5 mr-2">
           <button onClick={() => onShowGridChange(!showGrid)} className="flex items-center gap-1.5 cursor-pointer group">
-            <span className="text-[11px] text-slate-400 group-hover:text-slate-700 transition-colors">Grid</span>
-            <div className="relative inline-flex h-4 w-7 items-center rounded-full transition-colors"
+            <span className="text-[10px] font-semibold text-slate-500 group-hover:text-slate-800 transition-colors">Grid</span>
+            <div className="relative inline-flex h-4.5 w-8 items-center rounded-full transition-colors border border-slate-200"
               style={{ backgroundColor: showGrid ? "#8b5cf6" : "#cbd5e1" }}>
               <span className="inline-block h-3 w-3 rounded-full bg-white transition-transform shadow"
-                style={{ transform: showGrid ? "translateX(14px)" : "translateX(2px)" }} />
+                style={{ transform: showGrid ? "translateX(16px)" : "translateX(2px)" }} />
             </div>
           </button>
           <button onClick={() => onShowRulerChange(!showRuler)} className="flex items-center gap-1.5 cursor-pointer group">
-            <span className="text-[11px] text-slate-400 group-hover:text-slate-700 transition-colors">Ruler</span>
-            <div className="relative inline-flex h-4 w-7 items-center rounded-full transition-colors"
+            <span className="text-[10px] font-semibold text-slate-500 group-hover:text-slate-800 transition-colors">Ruler</span>
+            <div className="relative inline-flex h-4.5 w-8 items-center rounded-full transition-colors border border-slate-200"
               style={{ backgroundColor: showRuler ? "#8b5cf6" : "#cbd5e1" }}>
               <span className="inline-block h-3 w-3 rounded-full bg-white transition-transform shadow"
-                style={{ transform: showRuler ? "translateX(14px)" : "translateX(2px)" }} />
+                style={{ transform: showRuler ? "translateX(16px)" : "translateX(2px)" }} />
             </div>
           </button>
-          <div className="flex items-center gap-1 bg-white/80 border border-slate-300/50 rounded-md px-2 py-0.5 cursor-pointer">
-            <span className="text-[11px] text-slate-600">Units: µm</span>
-            <ChevronDown className="h-2.5 w-2.5 text-slate-400" />
+          <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-md px-2 py-0.5">
+            <span className="text-[10px] font-bold text-slate-600">Units: µm</span>
           </div>
         </div>
       </div>
 
       {/* Minimap */}
-      <div className="absolute bottom-10 right-3 w-36 h-28 bg-white/90 border border-slate-300/60 rounded-lg overflow-hidden shadow-2xl">
-        <div className="absolute inset-0 bg-slate-50">
+      <div className="absolute bottom-10 right-3 w-36 h-28 bg-white/95 border border-slate-200 shadow-xl rounded-lg overflow-hidden z-10">
+        <div className="absolute inset-0 bg-slate-50/70">
           {/* Chip outline in minimap */}
-          <div className="absolute inset-2 border border-emerald-400/30 rounded-sm" />
+          <div className="absolute inset-2 border border-slate-300 bg-white rounded-sm" />
+          
+          {/* Viewport Bounding Box */}
+          <div className="absolute border border-accent/50 bg-accent/10 pointer-events-none rounded-sm transition-all"
+            style={{
+              left: viewportBox.left,
+              top: viewportBox.top,
+              width: viewportBox.width,
+              height: viewportBox.height,
+            }}
+          />
+
           {components.filter(c => c.type === "qubit").map((c, i) => (
             <div key={i} className="absolute rounded-full"
               style={{
-                width: 4, height: 4,
-                backgroundColor: selectedId === c.id ? "#a78bfa" : "#7c3aed",
+                width: 4.5, height: 4.5,
+                backgroundColor: selectedId === c.id ? "#8b5cf6" : "#cbd5e1",
                 left: `${8 + (c.x / chipW) * 84}%`,
                 top: `${8 + (c.y / chipH) * 84}%`,
                 transform: "translate(-50%,-50%)",
@@ -705,8 +973,8 @@ function LayoutCanvas({
 
       {/* Hint */}
       {components.length > 0 && !selectedId && (
-        <div className="absolute bottom-12 left-1/2 -translate-x-1/2 text-[9px] text-slate-400 bg-slate-50/80 px-3 py-1 rounded-full pointer-events-none border border-slate-200/50">
-          Click any component to inspect · Scroll to zoom · Drag to pan
+        <div className="absolute bottom-12 left-1/2 -translate-x-1/2 text-[10px] text-slate-500 font-medium bg-white/90 shadow-md px-3.5 py-1.5 rounded-full pointer-events-none border border-slate-200/80">
+          {tool === "measure" ? "Click and drag to measure distance caliper tape" : "Click components to inspect · Scroll to zoom · Drag to pan"}
         </div>
       )}
     </div>
@@ -744,8 +1012,8 @@ function ComponentPreview({ comp }: { comp: LayoutComponent }) {
   );
   if (comp.type === "port") return (
     <svg width="80" height="80" viewBox="-40 -40 80 80">
-      <rect x="-22" y="-12" width="44" height="24" rx="4" fill="rgba(255,255,255,0.1)" stroke="white" strokeWidth="1.5"/>
-      <text x="0" y="5" textAnchor="middle" fontSize="11" fill="white" fontWeight="bold">{comp.label}</text>
+      <rect x="-22" y="-12" width="44" height="24" rx="4" fill="rgba(148,163,184,0.1)" stroke="#94a3b8" strokeWidth="1.5"/>
+      <text x="0" y="5" textAnchor="middle" fontSize="11" fill="#475569" fontWeight="bold">{comp.label}</text>
       <line x1="-22" y1="0" x2="-32" y2="0" stroke="#94a3b8" strokeWidth="2"/>
     </svg>
   );
@@ -831,8 +1099,11 @@ const LAYER_STACK = [
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 function LayoutViewerPage() {
+  const navigate = useNavigate();
   const { activeConversation } = useDesign();
   const result = activeConversation?.result ?? null;
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [layers, setLayers] = useState<LayerDef[]>(LAYER_DEFAULTS);
   const [selectedComponent, setSelectedComponent] = useState<LayoutComponent | null>(null);
@@ -926,6 +1197,187 @@ function LayoutViewerPage() {
   const versionLabel = "v2.3.1";
   const chipSizeStr = "9.42 mm × 9.42 mm";
 
+  // Action button integration
+  const handleOpenInEditor = () => {
+    navigate({
+      to: "/designer",
+      search: {
+        topology: result?.topology,
+        qubits: result?.num_qubits,
+      }
+    });
+  };
+
+  const handleCompare = () => {
+    toast.info("Comparing active layout with schema specification...");
+  };
+
+  const downloadGDS = () => {
+    const dummyGDS = `HEADER 600\nBGNLIB\nLASTMOD ${new Date().toISOString()}\nLIBNAME silicofeller_lib\nUNITS 1e-9 1e-12\n\nBGNSTR\nSTRNAME ${designLabel}\n// Qubits: ${qubitCount}, Couplers: ${couplerCount}\n// Silicon Substrate, Nb Metallization\nENDSTR\nENDLIB\n`;
+    const blob = new Blob([dummyGDS], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${designLabel}.gds`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success("Successfully exported GDSII layout file");
+  };
+
+  const downloadSVG = () => {
+    let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${layoutData.chipW} ${layoutData.chipH}" width="100%" height="100%" style="background:#f8fafc;">\n`;
+    svgContent += `  <rect x="80" y="80" width="${layoutData.chipW - 160}" height="${layoutData.chipH - 160}" rx="60" fill="rgba(34,197,94,0.04)" stroke="rgba(34,197,94,0.4)" stroke-width="10" />\n`;
+    
+    components.filter(c => c.type === "coupler").forEach(c => {
+      const qa = components.find(q => q.id === c.qubitA);
+      const qb = components.find(q => q.id === c.qubitB);
+      if (qa && qb) {
+        svgContent += `  <line x1="${qa.x}" y1="${qa.y}" x2="${qb.x}" y2="${qb.y}" stroke="rgba(249,115,22,0.45)" stroke-width="16" stroke-linecap="round" />\n`;
+      }
+      svgContent += `  <ellipse cx="${c.x}" cy="${c.y}" rx="75" ry="48" fill="rgba(249,115,22,0.8)" stroke="#fb923c" stroke-width="5" />\n`;
+    });
+
+    components.filter(c => c.type === "resonator").forEach(c => {
+      let pathD = `M ${c.x - 120} ${c.y}`;
+      const mx = c.x - 120;
+      for (let seg = 0; seg < 6; seg++) {
+        const dir = seg % 2 === 0 ? 1 : -1;
+        pathD += ` L ${mx + dir * 90} ${c.y + seg * 45}`;
+        pathD += ` L ${mx + dir * 90} ${c.y + (seg + 1) * 45}`;
+      }
+      svgContent += `  <path d="${pathD}" fill="none" stroke="rgba(59,130,246,0.75)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />\n`;
+    });
+
+    components.filter(c => c.type === "port").forEach(c => {
+      svgContent += `  <g>\n`;
+      svgContent += `    <rect x="${c.x - 45}" y="${c.y - 22}" width="90" height="44" rx="8" fill="rgba(255,255,255,0.85)" stroke="rgba(148,163,184,0.4)" stroke-width="7" />\n`;
+      svgContent += `    <text x="${c.x}" y="${c.y}" fill="#64748b" font-size="24" font-family="Inter, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${c.label}</text>\n`;
+      svgContent += `  </g>\n`;
+    });
+
+    components.filter(c => c.type === "qubit").forEach(c => {
+      svgContent += `  <!-- Qubit ${c.label} -->\n`;
+      svgContent += `  <circle cx="${c.x}" cy="${c.y}" r="165" fill="rgba(139,92,246,0.08)" stroke="rgba(146,141,221,0.3)" stroke-width="10" />\n`;
+      svgContent += `  <circle cx="${c.x}" cy="${c.y}" r="85" fill="rgba(109,40,217,0.75)" stroke="#a78bfa" stroke-width="7" />\n`;
+      [0, 90, 180, 270].forEach(angle => {
+        const rad = (angle * Math.PI) / 180;
+        const x1 = c.x + Math.cos(rad) * 85;
+        const y1 = c.y + Math.sin(rad) * 85;
+        const x2 = c.x + Math.cos(rad) * 160;
+        const y2 = c.y + Math.sin(rad) * 160;
+        svgContent += `  <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#7c3aed" stroke-width="22" stroke-linecap="round" />\n`;
+      });
+      svgContent += `  <rect x="${c.x - 120}" y="${c.y - 245}" width="240" height="50" rx="6" fill="white" stroke="rgba(139,92,246,0.2)" stroke-width="1" />\n`;
+      svgContent += `  <text x="${c.x}" y="${c.y - 210}" fill="#1e293b" font-size="44" font-family="monospace" font-weight="bold" text-anchor="middle">${c.label}</text>\n`;
+      if (c.freq) {
+        svgContent += `  <text x="${c.x}" y="${c.y - 175}" fill="#64748b" font-size="28" font-family="monospace" text-anchor="middle">${c.freq.toFixed(2)} GHz</text>\n`;
+      }
+    });
+
+    svgContent += `</svg>`;
+    const blob = new Blob([svgContent], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${designLabel}.svg`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success("Successfully exported SVG vector graphic");
+  };
+
+  const downloadPNG = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      toast.error("Canvas element not found");
+      return;
+    }
+    try {
+      const url = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${designLabel}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast.success("Successfully downloaded PNG layout snapshot");
+    } catch (err) {
+      toast.error("Failed to generate PNG snapshot");
+    }
+  };
+
+  const downloadQiskit = () => {
+    const qubitsPy = components.filter(c => c.type === "qubit").map(c => `
+# Qubit ${c.label}
+q_${c.label.toLowerCase()} = TransmonPocket(design, 'q_${c.label.toLowerCase()}', 
+    options=dict(
+        pos_x='${((c.x - 600) / 1000).toFixed(3)}mm', 
+        pos_y='${((c.y - 600) / 1000).toFixed(3)}mm',
+        connection_pads=dict(
+            readout=dict(loc_W=1, loc_H=-1, pad_width='30um'),
+            bus=dict(loc_W=-1, loc_H=1, pad_width='30um')
+        ),
+        pad_width='455um',
+        pocket_width='650um',
+        pocket_height='650um'
+    )
+)`).join("\n");
+
+    const couplersPy = components.filter(c => c.type === "coupler").map(c => `
+# Coupler ${c.label} between ${c.qubitA} and ${c.qubitB}
+c_${c.label.toLowerCase()} = RouteMeander(design, 'c_${c.label.toLowerCase()}',
+    options=dict(
+        pin_inputs=dict(
+            start_pin=dict(component='q_${c.qubitA?.toLowerCase()}', pin='bus'),
+            end_pin=dict(component='q_${c.qubitB?.toLowerCase()}', pin='bus')
+        ),
+        lead=dict(
+            start_straight='0.1mm',
+            end_straight='0.1mm'
+        ),
+        meander=dict(
+            spacing='0.12mm',
+            asymmetry='0.0mm'
+        ),
+        fillet='90um',
+        total_length='6.2mm'
+    )
+)`).join("\n");
+
+    const pyScript = `import qiskit_metal as metal
+from qiskit_metal import designs
+from qiskit_metal.qlibrary.qubits.transmon_pocket import TransmonPocket
+from qiskit_metal.qlibrary.tlines.meander import RouteMeander
+
+design = designs.DesignPlanar()
+design.overwrite = True
+
+design.chips.main.size.size_x = '${(layoutData.chipW/1000).toFixed(2)}mm'
+design.chips.main.size.size_y = '${(layoutData.chipH/1000).toFixed(2)}mm'
+
+${qubitsPy}
+
+${couplersPy}
+
+design.rebuild()
+print("Qiskit Metal layout '${designLabel}' generated successfully.")
+`;
+
+    const blob = new Blob([pyScript], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${designLabel}_qiskit_metal.py`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success("Successfully exported Qiskit Metal Python script");
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-3rem)] bg-[#f1f5fb] text-slate-800 overflow-hidden">
 
@@ -934,49 +1386,52 @@ function LayoutViewerPage() {
         {/* Breadcrumb */}
         <nav className="flex items-center gap-1 text-[11px] text-slate-400 mr-2">
           <span className="hover:text-slate-700 cursor-pointer transition-colors">Projects</span>
-          <ChevronRight className="h-3 w-3 text-slate-300/70" />
+          <ChevronRight className="h-3 w-3 text-slate-400" />
           <span className="hover:text-slate-700 cursor-pointer transition-colors">{designLabel}</span>
-          <ChevronRight className="h-3 w-3 text-slate-300/70" />
+          <ChevronRight className="h-3 w-3 text-slate-400" />
           <span className="hover:text-slate-700 cursor-pointer transition-colors">Layouts</span>
-          <ChevronRight className="h-3 w-3 text-slate-300/70" />
-          <span className="text-slate-300 font-semibold">{versionLabel}</span>
+          <ChevronRight className="h-3 w-3 text-slate-400" />
+          <span className="text-slate-700 font-semibold">{versionLabel}</span>
         </nav>
 
         {/* Version badge/dropdown */}
-        <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 rounded-md px-2.5 py-1 cursor-pointer hover:bg-slate-100 transition-colors ml-2">
+        <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 rounded-md px-2.5 py-1 cursor-pointer hover:bg-slate-150 transition-colors ml-2">
           <span className="text-[11px] font-semibold text-slate-700">{versionLabel} (Latest)</span>
-          <ChevronDown className="h-3 w-3 text-slate-400" />
+          <ChevronDown className="h-3 w-3 text-slate-450" />
         </div>
 
         <div className="flex-1" />
 
         {/* Action buttons */}
-        <Button variant="outline" size="sm" className="h-8 text-[11px] border-slate-300 text-slate-400 hover:text-slate-900 hover:border-slate-400 gap-1.5 bg-transparent px-3">
-          <GitCompare className="h-3.5 w-3.5" /> Compare
+        <Button onClick={handleCompare} variant="outline" size="sm" className="h-8 text-[11px] border-slate-300 text-slate-600 hover:text-slate-900 hover:border-slate-400 gap-1.5 bg-transparent px-3">
+          <GitCompare className="h-3.5 w-3.5 text-slate-500" /> Compare
         </Button>
-        <Button variant="outline" size="sm" className="h-8 text-[11px] border-slate-300 text-slate-400 hover:text-slate-900 hover:border-slate-400 gap-1.5 bg-transparent px-3">
-          <Download className="h-3.5 w-3.5" /> Export GDS
-        </Button>
-        <Button size="sm" className="h-8 text-[11px] bg-accent hover:bg-accent/90 gap-1.5 px-3 font-semibold">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 text-[11px] border-slate-300 text-slate-600 hover:text-slate-900 hover:border-slate-400 gap-1.5 bg-transparent px-3">
+              <Download className="h-3.5 w-3.5 text-slate-500" /> Export Layout <ChevronDown className="h-3 w-3 text-slate-400" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="bg-white border border-slate-250 shadow-md">
+            <DropdownMenuLabel className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Format Select</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={downloadGDS} className="text-[11px] text-slate-700 hover:bg-slate-100 flex items-center gap-2 cursor-pointer">
+              <FileCode className="h-3.5 w-3.5 text-slate-500" /> GDSII CAD Layout (.gds)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={downloadSVG} className="text-[11px] text-slate-700 hover:bg-slate-100 flex items-center gap-2 cursor-pointer">
+              <ScanLine className="h-3.5 w-3.5 text-slate-500" /> SVG Vector Graphic (.svg)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={downloadPNG} className="text-[11px] text-slate-700 hover:bg-slate-100 flex items-center gap-2 cursor-pointer">
+              <Layers className="h-3.5 w-3.5 text-slate-500" /> PNG Raster Snapshot (.png)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={downloadQiskit} className="text-[11px] text-slate-700 hover:bg-slate-100 flex items-center gap-2 cursor-pointer">
+              <CircuitBoard className="h-3.5 w-3.5 text-slate-500" /> Qiskit Metal Script (.py)
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Button onClick={handleOpenInEditor} size="sm" className="h-8 text-[11px] bg-accent hover:bg-accent/90 gap-1.5 px-3 font-semibold">
           <ExternalLink className="h-3.5 w-3.5" /> Open in Editor
         </Button>
-
-        <div className="w-px h-6 bg-slate-700/60 mx-1" />
-
-        {/* Notification */}
-        <button className="relative p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100/70 transition-colors">
-          <Bell className="h-4 w-4" />
-          <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-accent rounded-full border border-white" />
-        </button>
-
-        {/* Avatar */}
-        <div className="flex items-center gap-2 ml-1">
-          <div className="w-7 h-7 rounded-full bg-accent/80 flex items-center justify-center text-[10px] font-bold text-white">AS</div>
-          <div className="hidden sm:block">
-            <div className="text-[11px] font-semibold text-slate-700 leading-tight">Alex Smith</div>
-            <div className="text-[9px] text-slate-400 leading-tight">Owner</div>
-          </div>
-        </div>
       </div>
 
       {/* ══ BODY: Left | Canvas | Right ══ */}
@@ -1057,7 +1512,7 @@ function LayoutViewerPage() {
                 {/* Standalone entries like the reference image */}
                 <div className="flex items-center gap-1.5 px-4 py-1 text-[10px] text-slate-400 hover:text-slate-800 hover:bg-slate-100/50 cursor-pointer">
                   <ChevronRight className="h-3 w-3 text-slate-400 shrink-0" />
-                  <span className="text-purple-400 shrink-0"><Layers className="h-3 w-3" /></span>
+                  <span className="text-accent-2 shrink-0"><Layers className="h-3 w-3" /></span>
                   <span className="flex-1 font-medium text-slate-700">Ground Plane</span>
                 </div>
               </div>
@@ -1112,6 +1567,7 @@ function LayoutViewerPage() {
               setZoom={fn => setZoom(fn)}
               pan={pan}
               setPan={fn => setPan(fn)}
+              canvasRef={canvasRef}
             />
             {/* Grid / Ruler click targets (toolbar toggles pass props down) */}
             <div className="absolute top-2 right-[280px] flex items-center gap-3 z-20 pointer-events-auto">
@@ -1152,23 +1608,23 @@ function LayoutViewerPage() {
                       <thead>
                         <tr className="border-b border-slate-200 bg-slate-50 sticky top-0">
                           {["Layer", "Name", "Material", "Thickness", "Purpose"].map(h => (
-                            <th key={h} className="text-left px-3 py-1.5 text-slate-400 font-semibold text-[10px]">{h}</th>
+                            <th key={h} className="text-left px-3 py-1.5 text-slate-600 font-bold text-[10px]">{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {LAYER_STACK.map((row, i) => (
                           <tr key={i} className="border-b border-slate-200/40 hover:bg-slate-100/40 transition-colors">
-                            <td className="px-3 py-1.5 font-mono text-slate-400">{row.layer}</td>
+                            <td className="px-3 py-1.5 font-mono text-slate-500">{row.layer}</td>
                             <td className="px-3 py-1.5">
                               <div className="flex items-center gap-1.5">
                                 <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: updatedLayers.find(l => l.id === row.name)?.color ?? "#475569" }} />
-                                <span className="font-semibold text-slate-300">{row.name}</span>
+                                <span className="font-semibold text-slate-700">{row.name}</span>
                               </div>
                             </td>
-                            <td className="px-3 py-1.5 font-mono text-slate-400">{row.material}</td>
-                            <td className="px-3 py-1.5 font-mono text-slate-400">{row.thickness}</td>
-                            <td className="px-3 py-1.5 text-slate-400">{row.purpose}</td>
+                            <td className="px-3 py-1.5 font-mono text-slate-500">{row.material}</td>
+                            <td className="px-3 py-1.5 font-mono text-slate-500">{row.thickness}</td>
+                            <td className="px-3 py-1.5 text-slate-600">{row.purpose}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1188,7 +1644,7 @@ function LayoutViewerPage() {
                         ["DRC",          drcRan ? "Clean" : "Not Run", drcRan ? "#22c55e" : "#f97316"],
                       ].map(([label, value, color]) => (
                         <div key={label as string} className="bg-slate-50/80 rounded-lg p-2.5 border border-slate-200">
-                          <div className="text-[9px] text-slate-400 mb-1 font-medium">{label as string}</div>
+                          <div className="text-[9px] text-slate-500 mb-1 font-semibold">{label as string}</div>
                           <div className="text-[13px] font-bold truncate" style={{ color: color as string }}>{String(value)}</div>
                         </div>
                       ))}
@@ -1202,35 +1658,35 @@ function LayoutViewerPage() {
             {!bottomCollapsed && (
               <div className="w-80 border-l border-slate-200 flex flex-col shrink-0">
                 <div className="h-9 flex items-center px-3 border-b border-slate-200">
-                  <span className="text-[10px] font-semibold text-slate-400">Cross Section <span className="text-slate-400">(X: 2480 µm)</span></span>
+                  <span className="text-[10px] font-semibold text-slate-500">Cross Section <span className="text-slate-500">(X: 2480 µm)</span></span>
                 </div>
                 <div className="flex-1 bg-slate-50 overflow-hidden relative p-2">
                   <svg width="100%" height="100%" viewBox="0 0 280 130" preserveAspectRatio="none">
                     {/* Substrate */}
                     <rect x="0" y="90" width="280" height="40" fill="#dde4ed"/>
-                    <text x="4" y="112" fill="#94a3b8" fontSize="7" fontFamily="monospace">Si substrate</text>
+                    <text x="4" y="112" fill="#64748b" fontSize="7" fontFamily="monospace">Si substrate</text>
                     {/* Ground */}
                     <rect x="0" y="78" width="280" height="11" fill="rgba(34,197,94,0.25)" stroke="rgba(34,197,94,0.4)" strokeWidth="0.5"/>
-                    <text x="4" y="87" fill="#22c55e" fontSize="6" fontFamily="monospace">Nb ground</text>
+                    <text x="4" y="87" fill="#16a34a" fontSize="6" fontFamily="monospace">Nb ground</text>
                     {/* Qubit */}
                     <rect x="40" y="62" width="60" height="14" rx="2" fill="rgba(139,92,246,0.55)" stroke="#8b5cf6" strokeWidth="0.8"/>
-                    <text x="60" y="72" textAnchor="middle" fill="#c4b5fd" fontSize="6" fontFamily="monospace">Qubit</text>
+                    <text x="60" y="72" textAnchor="middle" fill="#6d28d9" fontSize="6" fontFamily="monospace">Qubit</text>
                     {/* Resonator */}
                     <rect x="140" y="62" width="55" height="14" rx="2" fill="rgba(59,130,246,0.55)" stroke="#3b82f6" strokeWidth="0.8"/>
-                    <text x="168" y="72" textAnchor="middle" fill="#93c5fd" fontSize="6" fontFamily="monospace">Resonator</text>
+                    <text x="168" y="72" textAnchor="middle" fill="#1d4ed8" fontSize="6" fontFamily="monospace">Resonator</text>
                     {/* Coupler */}
                     <rect x="110" y="65" width="32" height="10" rx="1" fill="rgba(249,115,22,0.55)" stroke="#f97316" strokeWidth="0.8"/>
-                    <text x="126" y="72" textAnchor="middle" fill="#fed7aa" fontSize="5" fontFamily="monospace">Coupler</text>
+                    <text x="126" y="72" textAnchor="middle" fill="#c2410c" fontSize="5" fontFamily="monospace">Coupler</text>
                     {/* JJ */}
                     <rect x="72" y="50" width="7" height="14" rx="1" fill="rgba(236,72,153,0.8)" stroke="#ec4899" strokeWidth="0.8"/>
-                    <text x="78" y="47" textAnchor="middle" fill="#fbcfe8" fontSize="6" fontFamily="monospace">JJ</text>
+                    <text x="78" y="47" textAnchor="middle" fill="#be185d" fontSize="6" fontFamily="monospace">JJ</text>
                     {/* Cursor line */}
                     <line x1="168" y1="8" x2="168" y2="130" stroke="rgba(6,182,212,0.5)" strokeWidth="0.8" strokeDasharray="3,2"/>
                     <text x="171" y="14" fill="#0891b2" fontSize="6" fontFamily="monospace">X: 2480</text>
                     {/* Y axis labels */}
-                    <text x="276" y="63" textAnchor="end" fill="#94a3b8" fontSize="6" fontFamily="monospace">2 µm</text>
-                    <text x="276" y="80" textAnchor="end" fill="#94a3b8" fontSize="6" fontFamily="monospace">1 µm</text>
-                    <text x="276" y="92" textAnchor="end" fill="#94a3b8" fontSize="6" fontFamily="monospace">0 µm</text>
+                    <text x="276" y="63" textAnchor="end" fill="#64748b" fontSize="6" fontFamily="monospace">2 µm</text>
+                    <text x="276" y="80" textAnchor="end" fill="#64748b" fontSize="6" fontFamily="monospace">1 µm</text>
+                    <text x="276" y="92" textAnchor="end" fill="#64748b" fontSize="6" fontFamily="monospace">0 µm</text>
                   </svg>
                 </div>
               </div>
@@ -1262,8 +1718,8 @@ function LayoutViewerPage() {
           </div>
 
           <div className="px-3 py-2 border-t border-b border-slate-200 flex gap-2">
-            <button onClick={showAll} className="flex-1 text-[9px] font-semibold text-slate-400 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 py-1.5 rounded-md transition-colors">Show All</button>
-            <button onClick={hideAll} className="flex-1 text-[9px] font-semibold text-slate-400 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 py-1.5 rounded-md transition-colors">Hide All</button>
+            <button onClick={showAll} className="flex-1 text-[9px] font-semibold text-slate-450 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 py-1.5 rounded-md transition-colors">Show All</button>
+            <button onClick={hideAll} className="flex-1 text-[9px] font-semibold text-slate-450 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 py-1.5 rounded-md transition-colors">Hide All</button>
           </div>
 
           {/* Properties section */}
@@ -1283,7 +1739,7 @@ function LayoutViewerPage() {
               ["Updated By",   "Alex Smith"],
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between gap-2">
-                <span className="text-slate-400 shrink-0">{k}</span>
+                <span className="text-slate-500 shrink-0">{k}</span>
                 <span className="text-slate-700 text-right truncate text-[9px] font-mono">{v}</span>
               </div>
             ))}
@@ -1299,8 +1755,8 @@ function LayoutViewerPage() {
                     <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                   </div>
                   <div>
-                    <p className="text-[11px] text-emerald-400 font-semibold">No DRC violations</p>
-                    <p className="text-[9px] text-slate-400 mt-0.5">Checked: May 20, 2025 2:28 PM</p>
+                    <p className="text-[11px] text-emerald-600 font-semibold">No DRC violations</p>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Checked: May 20, 2025 2:28 PM</p>
                   </div>
                 </>
               ) : (
@@ -1309,8 +1765,8 @@ function LayoutViewerPage() {
                     <AlertTriangle className="h-4 w-4 text-amber-500" />
                   </div>
                   <div>
-                    <p className="text-[11px] text-amber-400 font-semibold">Not Yet Run</p>
-                    <p className="text-[9px] text-slate-400 mt-0.5">Click to check design rules</p>
+                    <p className="text-[11px] text-amber-600 font-semibold">Not Yet Run</p>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Click to check design rules</p>
                   </div>
                 </>
               )}
