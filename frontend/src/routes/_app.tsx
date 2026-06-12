@@ -25,26 +25,6 @@ function AppHeader({ getPageTitle }: { getPageTitle: () => string }) {
           {getPageTitle()}
         </h1>
       </div>
-
-      {/* Middle Group - Active Project Pill */}
-      <div className="hidden sm:flex items-center justify-center">
-        <div className="flex items-center gap-2 px-3 py-1 rounded-full border border-accent/20 bg-accent/5 text-[11px] font-bold text-accent">
-          <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-          <span>Project: {activeProject?.name ?? "Untitled Project"}</span>
-        </div>
-      </div>
-
-      {/* Right Group - User Profile Profile Badge */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 px-2.5 py-1 rounded-full border border-slate-200 bg-white shadow-sm select-none">
-          <div className="w-6 h-6 rounded-full bg-accent text-white font-bold text-[10px] flex items-center justify-center">
-            {user?.initials ?? "US"}
-          </div>
-          <span className="text-xs font-bold text-slate-700 pr-1">
-            {user?.name ?? "User"}
-          </span>
-        </div>
-      </div>
     </header>
   );
 }
