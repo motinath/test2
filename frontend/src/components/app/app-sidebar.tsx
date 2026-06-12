@@ -55,7 +55,18 @@ type NavItem = {
   url: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: string;
+  locked?: boolean;
 };
+
+// Items NOT in this set will be locked
+const UNLOCKED = new Set([
+  "/dashboard",
+  "/projects",
+  "/designer",
+  "/schematic-editor",
+  "/component-library",
+  "/settings",
+]);
 
 const NAV: { label: string | null; items: NavItem[] }[] = [
   {
@@ -80,7 +91,6 @@ const NAV: { label: string | null; items: NavItem[] }[] = [
       { title: "Simulations", url: "/simulations", icon: PlayCircle },
       { title: "Physics Analysis", url: "/physics-analysis", icon: Atom },
       { title: "Fault Tolerance Studio", url: "/fault-tolerance", icon: Shield },
-      
     ],
   },
   {
@@ -129,8 +139,6 @@ export function AppSidebar() {
         </Link>
       </SidebarHeader>
 
-
-
       <SidebarContent className="py-3 flex-1 overflow-y-auto">
         {NAV.map((group, gi) => (
           <SidebarGroup key={gi} className="px-0 py-1.5">
@@ -143,6 +151,26 @@ export function AppSidebar() {
               <SidebarMenu className="space-y-0.5 px-2">
                 {group.items.map((item) => {
                   const isActive = pathname === item.url;
+                  const isLocked = !UNLOCKED.has(item.url);
+
+                  if (isLocked) {
+                    return (
+                      <SidebarMenuItem key={item.url}>
+                        <div
+                          title={collapsed ? item.title : undefined}
+                          className="flex items-center gap-3 w-full h-9 rounded-lg px-2 cursor-not-allowed opacity-40 select-none"
+                        >
+                          <item.icon className="h-4 w-4 shrink-0 text-sidebar-foreground/75" />
+                          {!collapsed && (
+                            <span className="text-[13px] leading-none flex-1 truncate font-medium">
+                              {item.title}
+                            </span>
+                          )}
+                        </div>
+                      </SidebarMenuItem>
+                    );
+                  }
+
                   return (
                     <SidebarMenuItem key={item.url}>
                       <SidebarMenuButton

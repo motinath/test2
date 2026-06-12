@@ -48,7 +48,7 @@ export const Route = createFileRoute("/")({
 const ROTATING_HEADLINES = [
   "Design Quantum Chips With Natural Language",
   "AI-Powered Quantum Chip Design",
-  "From Prompt to Silicon",
+  "From Prompt to Quantum Chip",
   "The Future of Quantum Engineering",
   "Describe. Generate. Fabricate.",
 ];
@@ -92,18 +92,14 @@ function LandingPage() {
           className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent to-[#0A0A0F]"
         />
 
-        <div className="relative z-10 grid grid-cols-1 gap-10 px-6 pb-28 pt-14 lg:grid-cols-[1.05fr_1fr] lg:gap-14 lg:px-10 lg:pt-20">
+        <div className="relative z-10 grid grid-cols-1 gap-10 px-6 pb-28 pt-8 lg:grid-cols-[1.05fr_1fr] lg:gap-14 lg:px-10 lg:pt-12">
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
             className="flex flex-col justify-center"
           >
-            <div className="inline-flex w-fit items-center gap-2 rounded-full border border-black/10 bg-white/60 px-3 py-1 text-xs font-medium text-foreground/70 backdrop-blur">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#F26B3A]" />
-              AI-native quantum chip design
-            </div>
-            <h1 className="mt-5 min-h-[1.1em] text-[2.75rem] font-semibold leading-[1.02] tracking-[-0.035em] sm:text-[3.5rem] lg:text-[4.25rem]">
+            <h1 className="text-[2.75rem] font-semibold leading-[1.35] tracking-[-0.035em] sm:text-[3.5rem] lg:text-[4.25rem]">
               <motion.span
                 key={headlineIdx}
                 initial={{ opacity: 0, y: 12 }}
@@ -139,13 +135,13 @@ function LandingPage() {
 
             <div className="mt-12 flex flex-wrap items-center gap-x-8 gap-y-3 text-xs text-foreground/55">
               <span className="flex items-center gap-1.5">
-                <Shield className="h-3.5 w-3.5" /> SOC 2 ready
+                <Shield className="h-3.5 w-3.5" /> 
               </span>
               <span className="flex items-center gap-1.5">
-                <Zap className="h-3.5 w-3.5" /> Generates in seconds
+                <Zap className="h-3.5 w-3.5" /> 
               </span>
               <span className="flex items-center gap-1.5">
-                <Cpu className="h-3.5 w-3.5" /> 128+ qubit topologies
+                <Cpu className="h-3.5 w-3.5" /> 
               </span>
             </div>
           </motion.div>
@@ -604,18 +600,33 @@ function FormInput({
   );
 }
 
+const FOOTER_LINK_MAP: Record<string, string> = {
+  Features: "#features",
+  Designer: "#demo",
+  About: "#about",
+  Blog: "/blog",
+  Contact: "#contact",
+};
+
 function FooterCol({ title, links }: { title: string; links: string[] }) {
   return (
     <div>
       <p className="text-xs font-semibold uppercase tracking-wider text-white">{title}</p>
       <ul className="mt-3 space-y-2 text-sm text-white/50">
-        {links.map((l) => (
-          <li key={l}>
-            <a href="#" className="transition-colors hover:text-white">
-              {l}
-            </a>
-          </li>
-        ))}
+        {links.map((l) => {
+          const href = FOOTER_LINK_MAP[l];
+          return href ? (
+            <li key={l}>
+              <a href={href} className="transition-colors hover:text-white">
+                {l}
+              </a>
+            </li>
+          ) : (
+            <li key={l}>
+              <span className="cursor-not-allowed opacity-40 select-none">{l}</span>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
