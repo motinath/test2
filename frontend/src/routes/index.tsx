@@ -29,13 +29,13 @@ import { useAuth, ROLE_LABEL } from "@/lib/auth/auth-context";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "SilicoFeller — AI Quantum Chip Design" },
+      { title: "Silicofeller — AI Quantum Chip Design" },
       {
         name: "description",
         content:
-          "SilicoFeller turns natural-language prompts into production-ready quantum chip architectures. Describe. Generate. Fabricate.",
+          "Silicofeller turns natural-language prompts into production-ready quantum chip architectures. Describe. Generate. Fabricate.",
       },
-      { property: "og:title", content: "SilicoFeller — AI Quantum Chip Design" },
+      { property: "og:title", content: "Silicofeller — AI Quantum Chip Design" },
       {
         property: "og:description",
         content: "AI-powered quantum chip design. From prompt to fabricated qubit array.",
@@ -115,7 +115,7 @@ function LandingPage() {
               </motion.span>
             </h1>
             <p className="mt-6 max-w-xl text-[1.0625rem] leading-relaxed text-foreground/70">
-              SilicoFeller transforms natural-language prompts into production-ready quantum chip
+              Silicofeller transforms natural-language prompts into production-ready quantum chip
               architectures — transmon arrays, error-correction layouts and superconducting qubit
               topologies, generated in seconds.
             </p>
@@ -125,7 +125,7 @@ function LandingPage() {
                 asChild
                 className="h-12 rounded-full bg-foreground px-6 text-sm font-semibold text-background hover:bg-foreground/90"
               >
-                <Link to={user ? "/dashboard" : "/designer"}>
+                <Link to="/designer">
                   Start designing <ArrowRight className="ml-1.5 h-4 w-4" />
                 </Link>
               </Button>
@@ -163,13 +163,13 @@ function LandingPage() {
       <Section
         id="about"
         eyebrow="About us"
-        title="SilicoFeller — AI for the quantum era."
+        title="Silicofeller — AI for the quantum era."
         tone="paper"
       >
         <div className="mt-2 grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_1fr] lg:items-center">
           <div>
             <p className="text-[0.9375rem] leading-relaxed text-muted-foreground">
-              SilicoFeller is an AI-powered quantum chip design platform. You describe the quantum
+              Silicofeller is an AI-powered quantum chip design platform. You describe the quantum
               chip you need — in plain language — and our platform turns that prompt into a
               complete, fabrication-ready design. No manual layout work, no low-level HDL, just your
               intent and an output you can build.
@@ -182,28 +182,52 @@ function LandingPage() {
               underlying design graph.
             </p>
             <p className="mt-4 text-[0.9375rem] leading-relaxed text-muted-foreground">
-              Once your design is ready, SilicoFeller automatically generates{" "}
+              Once your design is ready, Silicofeller automatically generates{" "}
               <span className="font-medium text-foreground">Qiskit Metal Python code</span> — the
               industry-standard framework for quantum chip design — so your layout is immediately
               ready for simulation, DRC verification, and tapeout submission.
             </p>
           </div>
           <div className="flex items-center justify-center">
-            <div
-              className="relative flex h-72 w-full max-w-md items-center justify-center rounded-3xl border border-border bg-white/80 p-10 backdrop-blur"
-              style={{ boxShadow: "var(--shadow-card)" }}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, rotateX: -15 }}
+              whileInView={{ opacity: 1, scale: 1, rotateX: 0 }}
+              viewport={{ once: true, margin: "-80px" }}
+              transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
+              style={{ perspective: 1200, transformStyle: "preserve-3d" }}
+              className="relative flex w-full max-w-lg items-center justify-center"
             >
-              <img
-                src="/logo-removebg-preview.png"
-                alt="SilicoFeller logo"
-                className="max-h-48 w-auto object-contain"
+              {/* soft glow halo under the chip */}
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-x-8 bottom-6 h-24 rounded-[100%] blur-2xl"
+                style={{
+                  background:
+                    "radial-gradient(closest-side, rgba(59,130,246,0.45), rgba(59,130,246,0) 70%)",
+                }}
               />
-              <img
-                src="/nvidia-inception-program-badge-rgb-1c-blk-for-screen.png"
-                alt="NVIDIA Inception Program member"
-                className="absolute bottom-4 right-4 h-10 w-auto opacity-80"
+              <motion.img
+                src="/quantum-chip-3d.png"
+                alt="Silicofeller quantum chip"
+                width={1280}
+                height={1024}
+                loading="lazy"
+                className="relative z-10 w-full max-w-lg select-none drop-shadow-[0_30px_60px_rgba(15,23,42,0.35)]"
+                style={{ transformStyle: "preserve-3d" }}
+                animate={{
+                  y: [0, -10, 0],
+                  rotateZ: [-1.2, 1.2, -1.2],
+                  rotateY: [-3, 3, -3],
+                }}
+                transition={{
+                  duration: 7,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }}
+                whileHover={{ scale: 1.04, rotateY: 6, rotateX: -4 }}
+                draggable={false}
               />
-            </div>
+            </motion.div>
           </div>
         </div>
 
@@ -313,7 +337,7 @@ function LandingPage() {
       <Section
         id="blog"
         eyebrow="Research & insights"
-        title="From the SilicoFeller blog."
+        title="From the Silicofeller blog."
         tone="elevated"
       >
         <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -407,7 +431,7 @@ function LandingPage() {
           <FooterCol title="Legal" links={["Privacy Policy", "Terms of Service", "Security"]} />
         </div>
         <div className="mx-auto mt-8 flex max-w-6xl flex-col items-center justify-between gap-2 border-t border-white/10 pt-6 text-xs text-white/50 sm:flex-row">
-          <p>© {new Date().getFullYear()} SilicoFeller, Inc. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} Silicofeller, Inc. All rights reserved.</p>
           {user && (
             <p>
               Signed in as <span className="font-medium text-white">{user.name}</span> ·{" "}
@@ -478,7 +502,7 @@ function SiteNav({
                 asChild
                 className="h-9 rounded-full bg-foreground px-4 text-sm font-semibold text-background hover:bg-foreground/90"
               >
-                <Link to="/dashboard">Open designer</Link>
+                <Link to="/designer">Open designer</Link>
               </Button>
             </>
           ) : (
