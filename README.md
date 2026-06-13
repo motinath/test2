@@ -152,6 +152,8 @@ Services started by Docker:
 - Backend API on port `5000`
 - Frontend on port `3000` → `http://localhost:3000`
 
+> Note: this repo contains `backend/Dockerfile`, but `frontend/Dockerfile` is not present in the workspace. As a result, `docker-compose.yml` will not currently build the frontend service until a matching `frontend/Dockerfile` is added.
+
 ---
 
 ## Backend Structure (V2)

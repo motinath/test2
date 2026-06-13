@@ -1,3 +1,4 @@
+# Triggering reload...
 """
 SILICOFELLER Quantum Studio — FastAPI Backend
 =============================================
@@ -24,7 +25,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, claude, generate, materials, projects, qclang, simulations, tapeout, verification
+from app.routers import auth, claude, generate, materials, projects, qclang, simulations, tapeout, verification, bridge
 from app.routers import design  # V2 design pipeline
 
 log = logging.getLogger(__name__)
@@ -43,6 +44,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         log.info("Database ready.")
     except Exception as e:
         log.warning(f"Database init skipped (will run without persistence): {e}")
+
+    # Prewarm component registry and render worker in background threads
+    try:
+        import threading
+        def _prewarm_registry() -> None:
+            try:
+                from app.services.component_registry import component_registry_service
+                log.info("Pre-warming component registry in background thread …")
+                found = component_registry_service.list_components()
+                log.info("Registry pre-warm complete — %d components cached.", len(found))
+            except Exception:
+                log.exception("Registry pre-warm failed (non-fatal).")
+
+        threading.Thread(target=_prewarm_registry, daemon=True, name="registry-prewarm").start()
+        from app.services.render_service import warmup_worker
+        threading.Thread(target=warmup_worker, daemon=True, name="render-worker-warmup").start()
+    except Exception as exc:
+        log.warning(f"Failed to start pre-warm or warmup threads (non-fatal): {exc}")
 
     yield
     log.info("Shutting down Quantum Studio backend.")
@@ -113,6 +132,7 @@ app.include_router(tapeout.router)           # /api/tapeout/...
 app.include_router(materials.router)         # /api/materials/...
 app.include_router(claude.router)            # /api/claude/...
 app.include_router(design.router)            # /api/design/... (V2 pipeline)
+app.include_router(bridge.router)            # /components and /design (bridge router)
 
 
 # ── Frequency plan (legacy frontend compat) ───────────────────────────────────
