@@ -39,63 +39,23 @@ class PinService:
 
     def extract_pins(self, component_id: str) -> ComponentPins:
         from app.services.component_registry import component_registry_service
-        summary = component_registry_service.get_component(component_id)
-        if summary is None:
+        item = component_registry_service.get_catalog_item(component_id)
+        if item is None:
             log.warning("Pins requested for unknown component %s. Returning empty pins.", component_id)
             return ComponentPins(id=component_id, pins=[])
+        
+        pins_list = []
         try:
-            return self._extract_via_instantiation(component_id, summary.module)
+            for p in item.get("pins", []):
+                pins_list.append(PinSpec(**p))
         except Exception as exc:
-            log.warning("Pin extraction failed for %s: %s", component_id, exc)
-            return ComponentPins(id=component_id, pins=[])
-
-    def _extract_via_instantiation(self, component_id: str, module_path: str) -> ComponentPins:
-        import importlib
-        from qiskit_metal import designs as qm_designs
-
-        module = importlib.import_module(module_path)
-        cls = getattr(module, component_id)
-
-        design = qm_designs.DesignPlanar(enable_renderers=False)
-        design.overwrite_enabled = True
-
-        options: dict = {}
-        pad_cfg = _make_default_connection_pads(cls)
-        if pad_cfg:
-            options["connection_pads"] = pad_cfg
-
-        try:
-            cls(design, "_pin_probe", options=options)
-        except Exception as exc:
-            log.warning("Could not instantiate %s: %s", component_id, exc)
-            return ComponentPins(id=component_id, pins=[])
-
-        try:
-            design.rebuild()
-        except Exception:
-            pass
-
-        comp = design.components["_pin_probe"]
-        pins: list[PinSpec] = []
-
-        if comp is not None:
-            for pin_name, pin_data in comp.pins.items():
-                middle = pin_data.get("middle", [0.0, 0.0])
-                normal = pin_data.get("normal", [0.0, 1.0])
-                angle = math.degrees(math.atan2(float(normal[1]), float(normal[0])))
-                pins.append(PinSpec(
-                    name=pin_name, direction="io",
-                    hint=PinHint(x=float(middle[0]) * 1000.0, y=float(middle[1]) * 1000.0, angle=angle),
-                ))
-
-        if not pins and pad_cfg:
-            for pad_name in pad_cfg:
-                pins.append(PinSpec(name=pad_name, direction="io", hint=PinHint(x=0.0, y=0.0, angle=0.0)))
-
-        return ComponentPins(id=component_id, pins=pins)
+            log.warning("Pin parsing failed for %s: %s", component_id, exc)
+            
+        return ComponentPins(id=component_id, pins=pins_list)
 
     def get_pins(self, component_id: str) -> ComponentPins:
         return registry_cache.get_or_set(self._cache_key(component_id), lambda: self.extract_pins(component_id))
 
 
 pin_service = PinService()
+

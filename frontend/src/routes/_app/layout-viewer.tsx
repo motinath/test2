@@ -1379,7 +1379,7 @@ print("Qiskit Metal layout '${designLabel}' generated successfully.")
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)] bg-[#f1f5fb] text-slate-800 overflow-hidden">
+    <div className="flex flex-col h-full bg-[#f1f5fb] text-slate-800 overflow-hidden">
 
       {/* ══ TOP BAR ══ */}
       <div className="flex h-12 items-center px-4 gap-3 border-b border-slate-200 bg-white shrink-0">

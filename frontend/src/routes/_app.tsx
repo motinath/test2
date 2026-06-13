@@ -68,8 +68,8 @@ function AppLayout() {
   return (
     <DesignProvider>
       <ProjectProvider>
-      <SidebarProvider>
-        <div className="flex min-h-screen w-full bg-background text-slate-800 font-sans app-workspace">
+      <SidebarProvider className="h-screen min-h-0 overflow-hidden">
+        <div className="flex h-full w-full bg-background text-slate-800 font-sans app-workspace overflow-hidden">
           <AppSidebar />
           <SidebarInset className="flex flex-1 flex-col overflow-hidden">
             <AppHeader getPageTitle={getPageTitle} />

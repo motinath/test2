@@ -3,7 +3,11 @@ import {
   forwardRef, useImperativeHandle,
 } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+<<<<<<< Updated upstream
 import { Maximize2, ZoomIn, ZoomOut } from "lucide-react";
+=======
+import { Plus, Minus } from "lucide-react";
+>>>>>>> Stashed changes
 import { prefixForCategory, type EditorState } from "@/lib/editor/design-store";
 import { useWorkspace } from "@/lib/editor/workspace-store";
 import {
@@ -22,14 +26,10 @@ const MM_TO_PX  = 80;
 const UM_TO_MM  = 0.001;
 const RULER_L   = 28;
 const RULER_B   = 28;
-const SCROLL_SZ = 10;
-const WORLD_H   = 20;
-const UI_SCALE_KEY = "_uiScale";
 const SCALE_MIN = 0.25;
 const SCALE_MAX = 5.0;
 const SCALE_STEP = 0.1;
-const LIB_DRAG_START = "silicofeller:component-drag-start";
-const LIB_DRAG_END   = "silicofeller:component-drag-end";
+const UI_SCALE_KEY = "_uiScale";
 
 export interface EditorCanvasHandle {
   fitToContent: () => void;
@@ -37,36 +37,12 @@ export interface EditorCanvasHandle {
 }
 
 type DragState =
-  | { mode: "pan"; startX: number; startY: number; panX: number; panY: number }
   | { mode: "move"; id: string; offsetX: number; offsetY: number }
   | null;
 
 function getUiScale(p: Placement): number {
   const v = p.params[UI_SCALE_KEY];
   return typeof v === "number" && v > 0 ? v : 1;
-}
-
-function rulerTicks(worldStart: number, worldEnd: number, pixLen: number) {
-  const span = worldEnd - worldStart;
-  if (span <= 0 || pixLen <= 0) return [];
-  const raw  = span / (pixLen / 80);
-  const mag  = Math.pow(10, Math.floor(Math.log10(raw)));
-  let step   = mag;
-  if (raw / mag > 5) step = mag * 5; else if (raw / mag > 2) step = mag * 2;
-  const first = Math.ceil(worldStart / step) * step;
-  const ticks: { value: number; px: number; major: boolean }[] = [];
-  for (let v = first; v <= worldEnd + step * 0.01; v += step) {
-    const px = ((v - worldStart) / span) * pixLen;
-    if (px < 0 || px > pixLen) continue;
-    ticks.push({ value: parseFloat(v.toFixed(8)), px, major: Math.abs(Math.round(v / step) % 5) === 0 });
-  }
-  return ticks;
-}
-
-function fmtTick(v: number, step: number): string {
-  if (Math.abs(v) < 1e-9) return "0";
-  if (step < 0.01) return `${(v * 1000).toFixed(0)}µ`;
-  return `${v.toFixed(step < 0.5 ? 1 : 0)}`;
 }
 
 export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function EditorCanvas(_p, ref) {
@@ -86,12 +62,12 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size,      setSize]      = useState({ w: 800, h: 600 });
   const [drag,      setDrag]      = useState<DragState>(null);
-  const [libDragId, setLibDragId] = useState<string | null>(null);
   const [dropPrev,  setDropPrev]  = useState<{ componentId: string; x: number; y: number } | null>(null);
+<<<<<<< Updated upstream
   const [dragOver,  setDragOver]  = useState(false);
-
-  const canvasW = size.w - RULER_L;
-  const canvasH = size.h - RULER_B;
+=======
+  const [hovered,   setHovered]   = useState<string | null>(null);
+>>>>>>> Stashed changes
 
   useEffect(() => {
     const el = containerRef.current; if (!el) return;
@@ -103,7 +79,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
   const compsQ = useQuery(componentsQueryOptions());
   const compsById = useMemo(() => {
     const m = new Map<string, ComponentSummary>();
-    // Seed from static catalog first as fallback
     QISKIT_CATALOG.forEach((c) => m.set(c.className, {
       id: c.className,
       name: c.label,
@@ -113,7 +88,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
                   c.category === "sample shapes" ? "other" : c.category) as any,
       description: c.description,
     }));
-    // Override with live bridge data if available
     (compsQ.data ?? []).forEach((c) => m.set(c.id, c));
     return m;
   }, [compsQ.data]);
@@ -127,19 +101,27 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
   const routeSvg = useMemo(() => { const m = new Map<string, string>(); (renderQ.data?.routes ?? []).forEach((r) => m.set(r.connectionId, r.svg)); return m; }, [renderQ.data?.routes]);
   const pinQueries = useQueries({ queries: state.placements.map((p) => componentPinsQueryOptions(p.componentId)) });
 
-  useEffect(() => {
-    const onS = (e: Event) => { const id = (e as CustomEvent<{ componentId?: string }>).detail?.componentId; if (id) setLibDragId(id); };
-    const onE = () => { setLibDragId(null); setDropPrev(null); };
-    window.addEventListener(LIB_DRAG_START, onS); window.addEventListener(LIB_DRAG_END, onE);
-    return () => { window.removeEventListener(LIB_DRAG_START, onS); window.removeEventListener(LIB_DRAG_END, onE); };
-  }, []);
+  // Calculate static board coordinates and auto-scale top-aligned in viewport
+  const scale = useMemo(() => {
+    return Math.max(0.4, Math.min((size.w - 100) / 720, (size.h - 100) / 480));
+  }, [size.w, size.h]);
+
+  const bw = 720 * scale;
+  const bh = 480 * scale;
+  const cx = size.w / 2;
+  const left = cx - bw / 2;
+  const right = cx + bw / 2;
+  const top = 48; // Top-aligned with 48px padding
+  const cy = top + bh / 2;
+  const bottom = top + bh;
 
   const w2s = useCallback((x: number, y: number) => ({
-    px: RULER_L + canvasW / 2 + (x * MM_TO_PX + state.pan.x) * state.zoom,
-    py:          canvasH / 2 - (y * MM_TO_PX - state.pan.y) * state.zoom,
-  }), [canvasW, canvasH, state.pan, state.zoom]);
+    px: cx + x * MM_TO_PX * scale,
+    py: cy - y * MM_TO_PX * scale,
+  }), [cx, cy, scale]);
 
   const s2w = useCallback((px: number, py: number) => ({
+<<<<<<< Updated upstream
     x:  (px - RULER_L - canvasW / 2) / state.zoom / MM_TO_PX - state.pan.x / MM_TO_PX,
     y: -(py -           canvasH / 2) / state.zoom / MM_TO_PX + state.pan.y / MM_TO_PX,
   }), [canvasW, canvasH, state.pan, state.zoom]);
@@ -154,6 +136,11 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
     const onW = (e: WheelEvent) => { e.preventDefault(); dispatch({ type: "ZOOM", zoom: zoomRef.current * (e.deltaY < 0 ? 1.1 : 1/1.1) }); };
     svg.addEventListener("wheel", onW, { passive: false }); return () => svg.removeEventListener("wheel", onW);
   }, [dispatch]);
+=======
+    x: (px - cx) / (MM_TO_PX * scale),
+    y: -(py - cy) / (MM_TO_PX * scale),
+  }), [cx, cy, scale]);
+>>>>>>> Stashed changes
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -170,36 +157,42 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
 
   const onPDown = (e: React.PointerEvent<SVGSVGElement>) => {
     const t = e.target as Element;
-    if (t === e.currentTarget || t.getAttribute("data-canvas-bg") === "true" || state.tool === "pan") {
-      setDrag({ mode: "pan", startX: e.clientX, startY: e.clientY, panX: state.pan.x, panY: state.pan.y });
+    if (t === e.currentTarget || t.getAttribute("data-canvas-bg") === "true") {
       dispatch({ type: "SELECT", selection: null });
-      (e.currentTarget as Element).setPointerCapture(e.pointerId);
     }
   };
+
   const onPMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!drag) return;
     const rect = svgRef.current?.getBoundingClientRect(); if (!rect) return;
-    if (drag.mode === "pan") dispatch({ type: "PAN", x: drag.panX + (e.clientX - drag.startX) / state.zoom, y: drag.panY - (e.clientY - drag.startY) / state.zoom });
-    else if (drag.mode === "move" && state.tool !== "pan") {
+    if (drag.mode === "move") {
       const w = s2w(e.clientX - rect.left - drag.offsetX, e.clientY - rect.top - drag.offsetY), snap = 0.05;
-      dispatch({ type: "MOVE_PLACEMENT", id: drag.id, x: Math.round(w.x / snap) * snap, y: Math.round(w.y / snap) * snap });
+      const snapX = Math.round(w.x / snap) * snap;
+      const snapY = Math.round(w.y / snap) * snap;
+      const constrainedX = Math.max(-4.5, Math.min(4.5, snapX));
+      const constrainedY = Math.max(-3.0, Math.min(3.0, snapY));
+      dispatch({ type: "MOVE_PLACEMENT", id: drag.id, x: constrainedX, y: constrainedY });
     }
   };
+
   const onPUp = (e: React.PointerEvent<SVGSVGElement>) => {
     if (drag && (e.currentTarget as Element).hasPointerCapture(e.pointerId)) (e.currentTarget as Element).releasePointerCapture(e.pointerId);
     setDrag(null);
   };
+
   const onDrop = (e: React.DragEvent) => {
-    e.preventDefault(); setDragOver(false);
-    const cid = e.dataTransfer.getData("application/x-silicofeller-component"); setDropPrev(null); setLibDragId(null);
+    e.preventDefault(); setDropPrev(null);
+    const cid = e.dataTransfer.getData("application/x-silicofeller-component");
     if (!cid) return;
     const summary = compsById.get(cid);
     if (!summary) return;
     const rect = svgRef.current?.getBoundingClientRect(); if (!rect) return;
     const w = s2w(e.clientX - rect.left, e.clientY - rect.top), snap = 0.05;
-    const x = Math.round(w.x / snap) * snap, y = Math.round(w.y / snap) * snap;
+    const snapX = Math.round(w.x / snap) * snap;
+    const snapY = Math.round(w.y / snap) * snap;
+    const constrainedX = Math.max(-4.5, Math.min(4.5, snapX));
+    const constrainedY = Math.max(-3.0, Math.min(3.0, snapY));
 
-    // Check query cache first for instant load
     const queryKey = ["bridge", "components", cid, "metadata"] as const;
     const cachedMetadata = qc.getQueryData<ComponentMetadata>(queryKey);
     let params: Record<string, string | number> = {};
@@ -207,7 +200,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
     if (cachedMetadata) {
       params = defaultParamsFromMetadata(cachedMetadata);
     } else {
-      // Fall back immediately to static catalog default parameters to avoid blocking
       const catalogEntry = QISKIT_CATALOG.find((c) => c.className === cid);
       if (catalogEntry) {
         params = Object.fromEntries(
@@ -219,21 +211,19 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
     const name = uniqueName(prefixForCategory(summary.category));
     const placementId = `pl_${name}_${Date.now()}`;
     
-    // Dispatch placement addition instantly
     dispatch({
       type: "ADD_PLACEMENT",
       placement: {
         id: placementId,
         componentId: cid,
         name,
-        x: parseFloat(x.toFixed(3)),
-        y: parseFloat(y.toFixed(3)),
+        x: parseFloat(constrainedX.toFixed(3)),
+        y: parseFloat(constrainedY.toFixed(3)),
         rotation: 0,
         params,
       },
     });
 
-    // If metadata was not cached, prefetch/load it in background and merge when ready
     if (!cachedMetadata) {
       bridgeClient.getMetadata(cid).then((metaRes) => {
         if (metaRes.data) {
@@ -247,73 +237,109 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
       }).catch(console.error);
     }
   };
+
   const onDragOver = (e: React.DragEvent<SVGSVGElement>) => {
-    e.preventDefault(); setDragOver(true); e.dataTransfer.dropEffect = "copy";
-    const cid  = libDragId || (e.dataTransfer.types.includes("application/x-silicofeller-component") ? e.dataTransfer.getData("application/x-silicofeller-component") : "");
+    e.preventDefault(); e.dataTransfer.dropEffect = "copy";
+    const cid = e.dataTransfer.types.includes("application/x-silicofeller-component") ? e.dataTransfer.getData("application/x-silicofeller-component") : "";
     const rect = svgRef.current?.getBoundingClientRect();
     if (!cid || !rect) return;
     const w = s2w(e.clientX - rect.left, e.clientY - rect.top), snap = 0.05;
-    setDropPrev({ componentId: cid, x: Math.round(w.x / snap) * snap, y: Math.round(w.y / snap) * snap });
+    const snapX = Math.round(w.x / snap) * snap;
+    const snapY = Math.round(w.y / snap) * snap;
+    const constrainedX = Math.max(-4.5, Math.min(4.5, snapX));
+    const constrainedY = Math.max(-3.0, Math.min(3.0, snapY));
+    setDropPrev({ componentId: cid, x: constrainedX, y: constrainedY });
   };
 
   const fitToContent = useCallback(() => {
-    if (!state.placements.length) { dispatch({ type: "ZOOM", zoom: 1 }); dispatch({ type: "PAN", x: 0, y: 0 }); return; }
-    const xs = state.placements.map((p) => p.x), ys = state.placements.map((p) => p.y);
-    const pad = 1.5, cW = Math.max(Math.max(...xs) - Math.min(...xs) + pad * 2, 2), cH = Math.max(Math.max(...ys) - Math.min(...ys) + pad * 2, 2);
-    const zoom = Math.min(canvasW / (cW * MM_TO_PX), canvasH / (cH * MM_TO_PX), 4);
-    dispatch({ type: "ZOOM", zoom }); dispatch({ type: "PAN", x: -((Math.min(...xs) + Math.max(...xs)) / 2) * MM_TO_PX, y: -((Math.min(...ys) + Math.max(...ys)) / 2) * MM_TO_PX });
-  }, [state.placements, canvasW, canvasH, dispatch]);
+    // Auto-fit is done automatically on render/resize, so this is a no-op
+  }, []);
 
   useImperativeHandle(ref, () => ({ fitToContent, getSvgElement: () => svgRef.current }), [fitToContent]);
 
-  const hWS = s2w(RULER_L, canvasH / 2), hWE = s2w(RULER_L + canvasW, canvasH / 2);
-  const vWE = s2w(RULER_L, 0), vWS = s2w(RULER_L, canvasH);
-  const hTicks = useMemo(() => rulerTicks(hWS.x, hWE.x, canvasW), [hWS.x, hWE.x, canvasW]);
-  const vTicks = useMemo(() => rulerTicks(vWS.y, vWE.y, canvasH), [vWS.y, vWE.y, canvasH]);
-  const hStep  = hTicks.length >= 2 ? Math.abs(hTicks[1].value - hTicks[0].value) : 1;
-  const vStep  = vTicks.length >= 2 ? Math.abs(vTicks[1].value - vTicks[0].value) : 1;
+  // Compute fixed tick lists for horizontal and vertical rulers attached to the board
+  const hTicks = useMemo(() => {
+    const ticks = [];
+    for (let v = -4.5; v <= 4.5; v = parseFloat((v + 0.1).toFixed(1))) {
+      const isMajor = Math.abs(v % 1.0) < 0.01;
+      const isHalf = Math.abs(v % 0.5) < 0.01;
+      ticks.push({
+        value: v,
+        px: cx + v * MM_TO_PX * scale,
+        type: isMajor ? "major" : isHalf ? "half" : "minor"
+      });
+    }
+    return ticks;
+  }, [cx, scale]);
 
-  const wTotal = WORLD_H * 2;
-  const panXmm = -state.pan.x / MM_TO_PX, panYmm = state.pan.y / MM_TO_PX;
-  const vHX = (canvasW / 2) / state.zoom / MM_TO_PX, vHY = (canvasH / 2) / state.zoom / MM_TO_PX;
-  const hTS = Math.max(0, Math.min(1, (panXmm - vHX + WORLD_H) / wTotal)), hTSz = Math.min(1, (vHX * 2) / wTotal);
-  const vTS = Math.max(0, Math.min(1, 1 - (panYmm + vHY + WORLD_H) / wTotal)), vTSz = Math.min(1, (vHY * 2) / wTotal);
-  const trH = canvasW - SCROLL_SZ, trV = canvasH - SCROLL_SZ;
+  const vTicks = useMemo(() => {
+    const ticks = [];
+    for (let v = -3.0; v <= 3.0; v = parseFloat((v + 0.1).toFixed(1))) {
+      const isMajor = Math.abs(v % 1.0) < 0.01;
+      const isHalf = Math.abs(v % 0.5) < 0.01;
+      ticks.push({
+        value: v,
+        py: cy - v * MM_TO_PX * scale,
+        type: isMajor ? "major" : isHalf ? "half" : "minor"
+      });
+    }
+    return ticks;
+  }, [cy, scale]);
 
 
 
   return (
-    <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-background select-none">
+    <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-[#f8fafc] select-none flex items-center justify-center">
       <svg ref={svgRef} width={size.w} height={size.h} className="block touch-none"
-        style={{ cursor: state.tool === "pan" ? (drag?.mode === "pan" ? "grabbing" : "grab") : drag?.mode === "move" ? "grabbing" : "default" }}
+        style={{ cursor: drag?.mode === "move" ? "grabbing" : "default" }}
         onPointerDown={onPDown} onPointerMove={onPMove} onPointerUp={onPUp} onPointerCancel={onPUp}
         onDragEnter={onDragOver} onDragOver={onDragOver}
-        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) { setDropPrev(null); setDragOver(false); } }}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) { setDropPrev(null); } }}
         onDrop={onDrop}
       >
-        <defs><clipPath id="cc"><rect x={RULER_L} y={0} width={canvasW} height={canvasH} /></clipPath></defs>
+        <defs>
+          <clipPath id="boardClip">
+            <rect x={left} y={top} width={bw} height={bh} rx={8} />
+          </clipPath>
+          <linearGradient id="siliconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#e0f2fe" />
+            <stop offset="100%" stopColor="#bae6fd" stopOpacity={0.95} />
+          </linearGradient>
+          <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="6" stdDeviation="10" floodColor="#0284c7" floodOpacity="0.18" />
+          </filter>
+        </defs>
 
-        {/* Dot-grid */}
-        <rect data-canvas-bg="true" x={RULER_L} y={0} width={canvasW} height={canvasH} fill="transparent"
-          style={{ backgroundImage: "radial-gradient(circle, color-mix(in oklab, var(--foreground) 15%, transparent) 1px, transparent 1px)", backgroundSize: `${24 * state.zoom}px ${24 * state.zoom}px`, backgroundPosition: `${state.pan.x * state.zoom + canvasW / 2}px ${-state.pan.y * state.zoom + canvasH / 2}px` }}
+        {/* Workbench Background Grid */}
+        <rect data-canvas-bg="true" x={0} y={0} width={size.w} height={size.h} fill="transparent"
+          style={{ backgroundImage: "radial-gradient(circle, #cbd5e1 1.2px, transparent 1.2px)", backgroundSize: "24px 24px" }}
         />
 
-        {/* Canvas content */}
-        <g clipPath="url(#cc)">
-          {(() => { const { px: tx, py: ty } = w2s(-4.5, 3), { px: bx, py: by } = w2s(4.5, -3); return <rect x={tx} y={ty} width={bx-tx} height={by-ty} fill={dragOver ? "color-mix(in oklab, var(--primary) 10%, transparent)" : "none"} stroke={dragOver ? "var(--primary)" : "color-mix(in oklab, var(--foreground) 20%, transparent)"} strokeWidth={dragOver ? 2 : 1.5} strokeDasharray={dragOver ? "none" : "8 5"} rx={3} />; })()}
+        {/* Chip board and content */}
+        <g clipPath="url(#boardClip)">
+          <rect x={left} y={top} width={bw} height={bh} fill="url(#siliconGrad)" stroke="#0284c7" strokeWidth={2.5} filter="url(#glow)" rx={8} />
+
+          {/* Dot-grid inside board */}
+          <rect x={left} y={top} width={bw} height={bh} fill="transparent"
+            style={{
+              backgroundImage: "radial-gradient(circle, rgba(14, 165, 233, 0.18) 1.2px, transparent 1.2px)",
+              backgroundSize: `${16 * scale}px ${16 * scale}px`,
+              backgroundPosition: `${cx}px ${cy}px`
+            }}
+          />
 
           {state.placements.map((p) => (
-            <PlacementPreview key={p.id} placement={p} w2s={w2s} zoom={state.zoom} uiScale={getUiScale(p)} />
+            <PlacementPreview key={p.id} placement={p} w2s={w2s} scale={scale} uiScale={getUiScale(p)} />
           ))}
-          {dropPrev && <DropGhost componentId={dropPrev.componentId} x={dropPrev.x} y={dropPrev.y} w2s={w2s} zoom={state.zoom} />}
+          {dropPrev && <DropGhost componentId={dropPrev.componentId} x={dropPrev.x} y={dropPrev.y} w2s={w2s} scale={scale} />}
 
           {state.placements.map((p, i) => (
             <PlacementGlyph key={p.id} placement={p} componentId={p.componentId}
               selected={state.selection?.kind === "placement" && state.selection.id === p.id}
               pendingOwner={state.pendingPin?.placementId ?? null} pendingPin={state.pendingPin?.pinName ?? null}
-              pins={pinQueries[i]?.data?.pins ?? []} w2s={w2s} zoom={state.zoom} uiScale={getUiScale(p)}
+              pins={pinQueries[i]?.data?.pins ?? []} w2s={w2s} scale={scale} uiScale={getUiScale(p)}
               onPointerDown={(e) => {
-                e.stopPropagation(); if (state.tool === "pan") return;
+                e.stopPropagation();
                 dispatch({ type: "SELECT", selection: { kind: "placement", id: p.id } });
                 const rect = svgRef.current?.getBoundingClientRect(); if (!rect) return;
                 const sc = w2s(p.x, p.y);
@@ -330,7 +356,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
             const isSel = state.selection?.kind === "connection" && state.selection.id === c.id;
             const rsvg  = routeSvg.get(c.id);
             if (rsvg && renderQ.data) {
-              const sc = state.zoom * MM_TO_PX * UM_TO_MM, { px, py } = w2s(0, 0);
+              const sc = scale * MM_TO_PX * (renderQ.data?.units === "um" ? UM_TO_MM : 1), { px, py } = w2s(0, 0);
               return <g key={c.id} className="cursor-pointer" onClick={(e) => { e.stopPropagation(); dispatch({ type: "SELECT", selection: { kind: "connection", id: c.id } }); }}>
                 {isSel && <g transform={`translate(${px} ${py}) scale(${sc} ${-sc})`} opacity={0.3} dangerouslySetInnerHTML={{ __html: rsvg }} />}
                 <g transform={`translate(${px} ${py}) scale(${sc} ${-sc})`} opacity={isSel ? 1 : 0.9} dangerouslySetInnerHTML={{ __html: rsvg }} />
@@ -345,45 +371,59 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
           })}
         </g>
 
-        {/* Left ruler */}
+        {/* Horizontal board ruler */}
         <g>
-          <rect x={0} y={0} width={RULER_L} height={canvasH} fill="var(--card)" />
-          <line x1={RULER_L} y1={0} x2={RULER_L} y2={canvasH} stroke="var(--border)" strokeWidth={1} />
-          {vTicks.map(({ value, px, major }) => { const sy = canvasH - px; return <g key={value}><line x1={major ? 10 : 18} y1={sy} x2={RULER_L} y2={sy} stroke="var(--muted-foreground)" strokeWidth={major ? 1 : 0.5} />{major && <text x={RULER_L/2} y={sy} fontSize={8} textAnchor="middle" dominantBaseline="middle" fill="var(--muted-foreground)" transform={`rotate(-90,${RULER_L/2},${sy})`} className="pointer-events-none select-none">{fmtTick(value, vStep)}</text>}</g>; })}
+          <rect x={left} y={top - RULER_B} width={bw} height={RULER_B} fill="#f1f5f9" stroke="#cbd5e1" strokeWidth={1} />
+          {hTicks.map(({ value, px, type }) => {
+            const y1 = type === "major" ? top - 12 : type === "half" ? top - 8 : top - 4;
+            return (
+              <g key={`h-${value}`}>
+                <line x1={px} y1={y1} x2={px} y2={top} stroke={type === "major" ? "#475569" : type === "half" ? "#94a3b8" : "#e2e8f0"} strokeWidth={type === "major" ? 1.2 : 0.8} />
+                {type === "major" && (
+                  <text x={px} y={top - 16} fontSize={8.5} fill="#475569" fontWeight={600} textAnchor="middle" className="pointer-events-none select-none font-mono">{value}</text>
+                )}
+              </g>
+            );
+          })}
         </g>
 
-        {/* Bottom ruler */}
-        <g transform={`translate(0,${canvasH})`}>
-          <rect x={RULER_L} y={0} width={canvasW} height={RULER_B} fill="var(--card)" />
-          <line x1={RULER_L} y1={0} x2={RULER_L+canvasW} y2={0} stroke="var(--border)" strokeWidth={1} />
-          {hTicks.map(({ value, px, major }) => <g key={value}><line x1={RULER_L+px} y1={0} x2={RULER_L+px} y2={major?10:6} stroke="var(--muted-foreground)" strokeWidth={major?1:0.5} />{major && <text x={RULER_L+px+2} y={RULER_B-4} fontSize={8} fill="var(--muted-foreground)" className="pointer-events-none select-none">{fmtTick(value, hStep)}</text>}</g>)}
-          <rect x={0} y={0} width={RULER_L} height={RULER_B} fill="var(--muted)" />
+        {/* Vertical board ruler */}
+        <g>
+          <rect x={left - RULER_L} y={top} width={RULER_L} height={bh} fill="#f1f5f9" stroke="#cbd5e1" strokeWidth={1} />
+          {vTicks.map(({ value, py, type }) => {
+            const x1 = type === "major" ? left - 12 : type === "half" ? left - 8 : left - 4;
+            return (
+              <g key={`v-${value}`}>
+                <line x1={x1} y1={py} x2={left} y2={py} stroke={type === "major" ? "#475569" : type === "half" ? "#94a3b8" : "#e2e8f0"} strokeWidth={type === "major" ? 1.2 : 0.8} />
+                {type === "major" && (
+                  <text x={left - 15} y={py + 3} fontSize={8.5} fill="#475569" fontWeight={600} textAnchor="end" className="pointer-events-none select-none font-mono">{value}</text>
+                )}
+              </g>
+            );
+          })}
         </g>
 
-        {/* H scrollbar */}
-        <g transform={`translate(${RULER_L},${canvasH})`}>
-          <rect x={0} y={RULER_B-SCROLL_SZ} width={canvasW-SCROLL_SZ} height={SCROLL_SZ} fill="var(--muted)" />
-          <rect x={2+hTS*(trH-4)} y={RULER_B-SCROLL_SZ+1} width={Math.max(20, hTSz*(trH-4))} height={SCROLL_SZ-3} fill="var(--border)" rx={3} className="cursor-pointer"
-            onPointerDown={(e) => { e.stopPropagation(); const sx=e.clientX, sp=state.pan.x; const mv=(ev: PointerEvent)=>dispatch({type:"PAN",x:sp-(ev.clientX-sx)/(trH-4)*wTotal*MM_TO_PX,y:state.pan.y}); const up=()=>{window.removeEventListener("pointermove",mv);window.removeEventListener("pointerup",up);}; window.addEventListener("pointermove",mv);window.addEventListener("pointerup",up);(e.currentTarget as Element).setPointerCapture(e.pointerId); }} />
-        </g>
-
-        {/* V scrollbar */}
-        <g transform={`translate(${RULER_L+canvasW-SCROLL_SZ},0)`}>
-          <rect x={0} y={0} width={SCROLL_SZ} height={canvasH-SCROLL_SZ} fill="var(--muted)" />
-          <rect x={1} y={2+vTS*(trV-4)} width={SCROLL_SZ-2} height={Math.max(20,vTSz*(trV-4))} fill="var(--border)" rx={3} className="cursor-pointer"
-            onPointerDown={(e) => { e.stopPropagation(); const sy=e.clientY, sp=state.pan.y; const mv=(ev: PointerEvent)=>dispatch({type:"PAN",x:state.pan.x,y:sp-(ev.clientY-sy)/(trV-4)*wTotal*MM_TO_PX}); const up=()=>{window.removeEventListener("pointermove",mv);window.removeEventListener("pointerup",up);}; window.addEventListener("pointermove",mv);window.addEventListener("pointerup",up);(e.currentTarget as Element).setPointerCapture(e.pointerId); }} />
+        {/* Corner mm unit label */}
+        <g>
+          <rect x={left - RULER_L} y={top - RULER_B} width={RULER_L} height={RULER_B} fill="#e2e8f0" stroke="#cbd5e1" strokeWidth={1} />
+          <text x={left - RULER_L / 2} y={top - RULER_B / 2 + 3.5} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#0284c7" className="pointer-events-none select-none font-sans">mm</text>
         </g>
       </svg>
 
 
+<<<<<<< Updated upstream
+=======
+      {/* Hover hit areas */}
+      {state.placements.map((p) => {
+        const { px, py } = w2s(p.x, p.y), hit = Math.max(48, 0.9 * MM_TO_PX * scale * getUiScale(p));
+        return <div key={`hh-${p.id}`} className="pointer-events-auto absolute" style={{ left: px-hit/2, top: py-hit/2, width: hit, height: hit, zIndex: 15 }} onMouseEnter={() => setHovered(p.id)} onMouseLeave={() => setHovered(null)} />;
+      })}
+>>>>>>> Stashed changes
 
-      {/* Global zoom */}
-      <div className="absolute bottom-3 right-4 flex items-center gap-1 rounded-full border border-border bg-card/95 px-1.5 py-1 shadow-sm backdrop-blur">
-        <button type="button" onClick={() => dispatch({ type: "ZOOM", zoom: Math.max(0.25, state.zoom/1.2) })} className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"><ZoomOut className="h-3.5 w-3.5" /></button>
-        <button type="button" onClick={() => dispatch({ type: "ZOOM", zoom: 1 })} className="min-w-[44px] text-center text-[11px] font-bold text-foreground hover:text-primary" title="Reset zoom">{Math.round(state.zoom * 100)}%</button>
-        <button type="button" onClick={() => dispatch({ type: "ZOOM", zoom: Math.min(8, state.zoom*1.2) })} className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"><ZoomIn className="h-3.5 w-3.5" /></button>
-        <div className="mx-0.5 h-4 w-px bg-border" />
-        <button type="button" onClick={fitToContent} className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-muted" title="Fit view (F)"><Maximize2 className="h-3.5 w-3.5" /></button>
+      {/* Global Dimension Indicator */}
+      <div className="absolute bottom-3 right-4 flex items-center gap-1.5 rounded-full border border-border bg-card/95 px-3 py-1 shadow-sm backdrop-blur">
+        <span className="text-[11px] font-semibold text-muted-foreground">Chip Dimensions:</span>
+        <span className="text-[11px] font-bold text-foreground">9.0 × 6.0 mm</span>
       </div>
 
       {state.pendingPin && <div className="absolute top-8 left-8 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-[11px] font-bold text-primary shadow-sm">Click another pin to connect · Esc to cancel</div>}
@@ -394,41 +434,41 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
   );
 });
 
-function PlacementPreview({ placement, w2s, zoom, uiScale }: { placement: Placement; w2s: (x: number, y: number) => { px: number; py: number }; zoom: number; uiScale: number }) {
+function PlacementPreview({ placement, w2s, scale, uiScale }: { placement: Placement; w2s: (x: number, y: number) => { px: number; py: number }; scale: number; uiScale: number }) {
   const q = useQuery(componentPreviewQueryOptions(placement.componentId, placement.params));
   const p = q.data;
   const { px, py } = w2s(placement.x, placement.y);
   if (!p?.svg) {
-    const s = Math.max(36, 0.6 * MM_TO_PX * zoom * uiScale), h = s / 2;
+    const s = Math.max(36, 0.6 * MM_TO_PX * scale * uiScale), h = s / 2;
     return (
       <g transform={`translate(${px} ${py}) rotate(${-placement.rotation})`}>
         <rect x={-h} y={-h} width={s} height={s} rx={4} fill="color-mix(in oklab, var(--primary) 5%, transparent)" stroke="color-mix(in oklab, var(--foreground) 30%, transparent)" strokeWidth={1.5} strokeDasharray="4 3" />
       </g>
     );
   }
-  const sc = zoom * MM_TO_PX * (p.units === "um" ? UM_TO_MM : 1) * uiScale;
+  const sc = scale * MM_TO_PX * (p.units === "um" ? UM_TO_MM : 1) * uiScale;
   const vb = p.viewBox;
   return <g transform={`translate(${px} ${py}) rotate(${-placement.rotation})`}><g transform={`scale(${sc} ${-sc}) translate(${-(vb.x+vb.w/2)} ${-(vb.y+vb.h/2)})`} dangerouslySetInnerHTML={{ __html: p.svg }} style={{ transition: "transform 0.12s ease" }} /></g>;
 }
 
-function DropGhost({ componentId, x, y, w2s, zoom }: { componentId: string; x: number; y: number; w2s: (x: number, y: number) => { px: number; py: number }; zoom: number }) {
+function DropGhost({ componentId, x, y, w2s, scale }: { componentId: string; x: number; y: number; w2s: (x: number, y: number) => { px: number; py: number }; scale: number }) {
   const q = useQuery(componentPreviewQueryOptions(componentId));
   const p = q.data;
   const { px, py } = w2s(x, y);
-  if (!p?.svg) { const s = Math.max(36, 0.6*MM_TO_PX*zoom), h = s/2; return <g className="pointer-events-none" transform={`translate(${px} ${py})`}><rect x={-h} y={-h} width={s} height={s} rx={4} fill="color-mix(in oklab, var(--primary) 10%, transparent)" stroke="var(--primary)" strokeDasharray="5 4" strokeOpacity={0.65} /></g>; }
-  const sc = zoom * MM_TO_PX * (p.units === "um" ? UM_TO_MM : 1), vb = p.viewBox;
+  if (!p?.svg) { const s = Math.max(36, 0.6*MM_TO_PX*scale), h = s/2; return <g className="pointer-events-none" transform={`translate(${px} ${py})`}><rect x={-h} y={-h} width={s} height={s} rx={4} fill="color-mix(in oklab, var(--primary) 10%, transparent)" stroke="var(--primary)" strokeDasharray="5 4" strokeOpacity={0.65} /></g>; }
+  const sc = scale * MM_TO_PX * (p.units === "um" ? UM_TO_MM : 1), vb = p.viewBox;
   return <g className="pointer-events-none" opacity={0.72}><g transform={`translate(${px} ${py})`}><g transform={`scale(${sc} ${-sc}) translate(${-(vb.x+vb.w/2)} ${-(vb.y+vb.h/2)})`} dangerouslySetInnerHTML={{ __html: p.svg }} /></g><circle cx={px} cy={py} r={4} fill="var(--primary)" stroke="var(--background)" strokeWidth={1.5} /></g>;
 }
 
-function PlacementGlyph({ placement, componentId, selected, pendingOwner, pendingPin, pins, w2s, zoom, uiScale, onPointerDown, onPinClick }: {
+function PlacementGlyph({ placement, componentId, selected, pendingOwner, pendingPin, pins, w2s, scale, uiScale, onPointerDown, onPinClick }: {
   placement: Placement; componentId: string; selected: boolean; pendingOwner: string | null; pendingPin: string | null;
-  pins: PinSpec[]; w2s: (x: number, y: number) => { px: number; py: number }; zoom: number; uiScale: number;
+  pins: PinSpec[]; w2s: (x: number, y: number) => { px: number; py: number }; scale: number; uiScale: number;
   onPointerDown: (e: React.PointerEvent) => void; onPinClick: (p: string) => void;
 }) {
   const q  = useQuery(componentPreviewQueryOptions(componentId, placement.params));
   const vb = q.data?.viewBox;
   const um = q.data?.units === "um" ? UM_TO_MM : 1;
-  const sz = vb ? Math.max(vb.w, vb.h) * um * MM_TO_PX * zoom * uiScale : Math.max(28, 0.5*MM_TO_PX*zoom);
+  const sz = vb ? Math.max(vb.w, vb.h) * um * MM_TO_PX * scale * uiScale : Math.max(28, 0.5*MM_TO_PX*scale);
   const { px, py } = w2s(placement.x, placement.y), half = sz / 2;
   const isPO = pendingOwner === placement.id;
   return (
@@ -437,7 +477,7 @@ function PlacementGlyph({ placement, componentId, selected, pendingOwner, pendin
       {selected && <rect x={-half-6} y={-half-6} width={sz+12} height={sz+12} rx={6} fill="none" stroke="var(--primary)" strokeOpacity={0.5} strokeWidth={2} strokeDasharray="3 2" />}
       <text x={0} y={half+14} textAnchor="middle" fontSize={10} fontWeight={700} fill="var(--foreground)" className="select-none">{placement.name}</text>
       {pins.map((pin) => {
-        const cx = pin.hint.x * UM_TO_MM * MM_TO_PX * zoom, cy = -pin.hint.y * UM_TO_MM * MM_TO_PX * zoom;
+        const cx = pin.hint.x * UM_TO_MM * MM_TO_PX * scale, cy = -pin.hint.y * UM_TO_MM * MM_TO_PX * scale;
         const iP = isPO && pendingPin === pin.name;
         return <g key={pin.name}>
           <circle cx={cx} cy={cy} r={iP?5:3.5} fill={iP?"var(--destructive)":selected?"var(--primary)":"var(--muted-foreground)"} stroke="var(--background)" strokeWidth={1} className="cursor-crosshair" onPointerDown={(e) => { e.stopPropagation(); onPinClick(pin.name); }} />

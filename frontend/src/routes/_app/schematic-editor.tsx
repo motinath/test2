@@ -384,7 +384,7 @@ function SchematicEditorShell() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.2 }}
-      className="flex h-full w-full max-w-full min-w-0 flex-col bg-background text-foreground overflow-hidden"
+      className="absolute inset-0 flex flex-col bg-background text-foreground overflow-hidden"
     >
       {/* Toolbar */}
       <EditorToolbar
@@ -400,7 +400,7 @@ function SchematicEditorShell() {
         {/* Component Library (collapsible) */}
         {libOpen && (
           <div className="w-64 shrink-0 border-r border-border bg-card overflow-hidden flex flex-col">
-            <div className="h-full overflow-auto p-2">
+            <div className="h-full flex flex-col p-2 overflow-hidden">
               <ComponentLibrary />
             </div>
           </div>

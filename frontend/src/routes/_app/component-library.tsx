@@ -71,7 +71,7 @@ function ComponentLibraryPage() {
   }, [search, activeCat]);
 
   return (
-    <div className="h-[calc(100vh-3rem)] w-full bg-[#F8F9FB] flex flex-col">
+    <div className="h-full w-full bg-[#F8F9FB] flex flex-col">
       {/* Header */}
       <div className="border-b border-slate-200 bg-white px-6 py-4">
         <div className="flex items-center gap-3">

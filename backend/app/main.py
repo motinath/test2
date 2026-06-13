@@ -45,23 +45,53 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         log.warning(f"Database init skipped (will run without persistence): {e}")
 
-    # Prewarm component registry and render worker in background threads
+    # Prewarm component registry, metadata, pins, and previews
     try:
         import threading
         def _prewarm_registry() -> None:
             try:
                 from app.services.component_registry import component_registry_service
-                log.info("Pre-warming component registry in background thread …")
-                found = component_registry_service.list_components()
-                log.info("Registry pre-warm complete — %d components cached.", len(found))
+                from app.services.metadata_service import metadata_service
+                from app.services.pin_service import pin_service
+                from app.services.render_service import render_service, warmup_worker
+                
+                log.info("Pre-warming component registry ...")
+                components = component_registry_service.list_components()
+                log.info("Loaded %d component summaries from catalog cache.", len(components))
+                
+                # Warm up worker subprocess
+                warmup_worker()
+                
+                # Pre-warm metadata and pins
+                for c in components:
+                    metadata_service.get_metadata(c.id)
+                    pin_service.get_pins(c.id)
+                log.info("Metadata and pin caches populated.")
+                
+                # Asynchronously pre-warm component previews to not block startup thread
+                def _warm_previews():
+                    log.info("Pre-warming component preview SVGs in background ...")
+                    for c in components:
+                        try:
+                            # Triggers rendering through IPC worker and saves to registry_cache
+                            # via the default-parameter preview caching mechanism
+                            cache_key = f"preview:{c.id}"
+                            from app.core.registry_cache import registry_cache
+                            if registry_cache.get(cache_key) is None:
+                                preview = render_service.render_component_preview(c.id)
+                                registry_cache.set(cache_key, preview)
+                        except Exception:
+                            pass
+                    log.info("Component previews cache warming complete.")
+                
+                threading.Thread(target=_warm_previews, daemon=True, name="previews-warmup").start()
+                
             except Exception:
                 log.exception("Registry pre-warm failed (non-fatal).")
 
         threading.Thread(target=_prewarm_registry, daemon=True, name="registry-prewarm").start()
-        from app.services.render_service import warmup_worker
-        threading.Thread(target=warmup_worker, daemon=True, name="render-worker-warmup").start()
     except Exception as exc:
-        log.warning(f"Failed to start pre-warm or warmup threads (non-fatal): {exc}")
+        log.warning(f"Failed to start pre-warm thread (non-fatal): {exc}")
 
     yield
     log.info("Shutting down Quantum Studio backend.")

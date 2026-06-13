@@ -688,7 +688,7 @@ function DesignerPage() {
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="flex h-[calc(100vh-3rem)] w-full overflow-hidden bg-[#F7F8FA]"
+      className="flex h-full w-full overflow-hidden bg-[#F7F8FA]"
     >
       {/* ─── Pane 1: Session History Sidebar ───────────────────────────── */}
       <AnimatePresence initial={false}>

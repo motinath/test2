@@ -1,13 +1,17 @@
-"""Persistent-worker Qiskit Metal rendering service."""
+"""Decoupled Qiskit Metal rendering service using subprocess JSON IPC."""
 from __future__ import annotations
 
+import json
 import logging
-import multiprocessing
+import os
+import subprocess
+import sys
 import threading
 import time
-from queue import Empty
+from pathlib import Path
 from typing import Dict, Optional
 
+from app.core.registry_cache import registry_cache
 from app.core.editor_models import (
     ComponentPreview, DesignDocument, RenderResult, RouteRender,
     ValidationIssue, ValidationResult, ViewBox,
@@ -20,57 +24,6 @@ COMPONENT_RENDER_TIMEOUT = 30
 DESIGN_RENDER_TIMEOUT = 60
 
 
-# ── Geometry helpers ──────────────────────────────────────────────────────────
-
-def _make_default_connection_pads(cls: type) -> dict:
-    default_opts = getattr(cls, "default_options", {})
-    if "_default_connection_pads" not in default_opts:
-        return {}
-    base = dict(default_opts["_default_connection_pads"])
-    if "connector_location" in base:
-        base.pop("connector_location", None)
-        return {"readout": {**base, "connector_location": "0"}, "bus_01": {**base, "connector_location": "180"}, "bus_02": {**base, "connector_location": "90"}}
-    if "loc_W" in base and "loc_H" in base:
-        return {"a": {**base, "loc_W": "+1", "loc_H": "+1"}, "b": {**base, "loc_W": "-1", "loc_H": "+1"}, "c": {**base, "loc_W": "+1", "loc_H": "-1"}, "d": {**base, "loc_W": "-1", "loc_H": "-1"}}
-    return {name: dict(base) for name in ("a", "b", "c", "d")}
-
-
-def _geom_to_svg(geom, color: str, scale: float, out: list) -> None:
-    gtype = geom.geom_type
-    if gtype == "Polygon":
-        d = _poly_d(geom, scale)
-        if d:
-            out.append(f'<path d="{d}" fill="{color}" fill-opacity="0.85" stroke="none"/>')
-    elif gtype in ("MultiPolygon", "GeometryCollection"):
-        for g in geom.geoms:
-            _geom_to_svg(g, color, scale, out)
-    elif gtype == "LineString":
-        coords = list(geom.coords)
-        if len(coords) >= 2:
-            pts = " ".join(f"{x*scale:.1f},{y*scale:.1f}" for x, y in coords)
-            out.append(f'<polyline points="{pts}" fill="none" stroke="{color}" stroke-width="10" stroke-linecap="round"/>')
-    elif gtype == "MultiLineString":
-        for g in geom.geoms:
-            _geom_to_svg(g, color, scale, out)
-
-
-def _poly_d(poly, scale: float) -> str:
-    if poly.is_empty:
-        return ""
-    def ring(coords):
-        pts = [(x*scale, y*scale) for x, y in coords]
-        if len(pts) < 2:
-            return ""
-        d = f"M {pts[0][0]:.1f} {pts[0][1]:.1f}"
-        for x, y in pts[1:]:
-            d += f" L {x:.1f} {y:.1f}"
-        return d + " Z"
-    parts = [ring(poly.exterior.coords)]
-    for interior in poly.interiors:
-        parts.append(ring(interior.coords))
-    return " ".join(p for p in parts if p)
-
-
 def _placeholder_svg(component_id: str) -> str:
     label = component_id[:12]
     return (f'<rect x="-280" y="-180" width="560" height="360" rx="20" fill="#1e3a5f" '
@@ -79,241 +32,93 @@ def _placeholder_svg(component_id: str) -> str:
             f'fill="#5B9BD5" font-weight="bold">{label}</text>')
 
 
-# ── Worker functions (run inside persistent worker process) ───────────────────
-
-def _do_component_preview(component_id, module_path, options, designs_mod, class_map, importlib_mod):
-    cls = class_map.get(component_id)
-    if cls is None:
-        return {"fragment": "", "vb": [-500, -500, 1000, 1000]}
-
-    design = designs_mod.DesignPlanar(enable_renderers=False)
-    design.overwrite_enabled = True
-
-    clean = {k: v for k, v in options.items() if k not in ("pos_x", "pos_y", "orientation")}
-    clean["pos_x"] = "0mm"
-    clean["pos_y"] = "0mm"
-    if "connection_pads" not in clean:
-        pc = _make_default_connection_pads(cls)
-        if pc:
-            clean["connection_pads"] = pc
-
-    instance = cls(design, "preview", options=clean)
-    design.rebuild()
-
-    tables = design.qgeometry.tables
-    if not any(len(gdf) > 0 for gdf in tables.values()):
-        try:
-            instance.rebuild()
-        except Exception:
-            pass
-
-    MM = 1000.0
-    COLORS = {"poly": "#5B9BD5", "path": "#2E5FA3", "junction": "#D4820A"}
-    cid = instance.id
-    bounds, paths = [], []
-
-    for tname, gdf in tables.items():
-        if gdf is None or len(gdf) == 0:
-            continue
-        color = COLORS.get(tname, "#5B9BD5")
-        rows = gdf[gdf["component"] == cid] if "component" in gdf.columns else gdf
-        for _, row in rows.iterrows():
-            g = row.get("geometry")
-            if g is None or g.is_empty:
-                continue
-            bounds.append(g.bounds)
-            _geom_to_svg(g, color, MM, paths)
-
-    if not paths or not bounds:
-        return {"fragment": "", "vb": [-500, -500, 1000, 1000]}
-
-    xmin = min(b[0] for b in bounds) * MM
-    ymin = min(b[1] for b in bounds) * MM
-    xmax = max(b[2] for b in bounds) * MM
-    ymax = max(b[3] for b in bounds) * MM
-    pad = max((xmax - xmin) * 0.1, (ymax - ymin) * 0.1, 20)
-    return {"fragment": "\n".join(paths), "vb": [xmin-pad, ymin-pad, (xmax-xmin)+2*pad, (ymax-ymin)+2*pad]}
-
-
-def _do_full_design(graph, designs_mod, class_map):
-    design = designs_mod.DesignPlanar(enable_renderers=False)
-    design.overwrite_enabled = True
-
-    _EXCLUDE = frozenset({"connection_pads", "pos_x", "pos_y", "orientation", "chip", "layer"})
-    inst_id_map: dict[str, int] = {}
-
-    for comp in graph["components"]:
-        cls = class_map.get(comp["componentId"])
-        if cls is None:
-            log.warning("Unknown component: %s", comp["componentId"])
-            continue
-        opts = {k: v for k, v in comp.get("options", {}).items() if k not in _EXCLUDE}
-        pos = comp.get("position", {})
-        opts["pos_x"] = f"{pos.get('x', 0)}mm"
-        opts["pos_y"] = f"{pos.get('y', 0)}mm"
-        if comp.get("rotation"):
-            opts["orientation"] = str(comp["rotation"])
-        ep = opts.get("connection_pads")
-        if not isinstance(ep, dict) or not ep or any(not isinstance(v, dict) for v in ep.values()):
-            pc = _make_default_connection_pads(cls)
-            if pc:
-                opts["connection_pads"] = pc
-            else:
-                opts.pop("connection_pads", None)
-        try:
-            inst = cls(design, comp["instanceName"], options=opts)
-            inst_id_map[comp["instanceName"]] = inst.id
-        except Exception as exc:
-            log.warning("Could not place %s: %s", comp["instanceName"], exc)
-
-    route_id_map: dict[str, int] = {}
-    for conn in graph["connections"]:
-        route_cls = class_map.get(conn["routeComponentId"])
-        if route_cls is None:
-            log.warning("Unknown route: %s", conn["routeComponentId"])
-            continue
-        opts = dict(conn.get("routeOverrides", {}))
-        opts["pin_inputs"] = {
-            "start_pin": {"component": conn["sourceComponentName"], "pin": conn["sourcePinName"]},
-            "end_pin":   {"component": conn["targetComponentName"], "pin": conn["targetPinName"]},
-        }
-        rname = f"route_{conn['id'][:8]}"
-        try:
-            ri = route_cls(design, rname, options=opts)
-            route_id_map[conn["id"]] = ri.id
-        except Exception as exc:
-            log.warning("Could not create route %s: %s", conn["id"], exc)
-
-    design.rebuild()
-
-    MM = 1000.0
-    COLORS = {"poly": "#5B9BD5", "path": "#3a7abf", "junction": "#D4820A"}
-    RCOLS  = {"poly": "#2E5FA3", "path": "#2E5FA3"}
-    tables = design.qgeometry.tables
-    bounds: list = []
-    comp_svg: list[str] = []
-    route_svgs: dict[str, list[str]] = {cid: [] for cid in route_id_map}
-
-    for tname, gdf in tables.items():
-        if gdf is None or len(gdf) == 0:
-            continue
-        color  = COLORS.get(tname, "#5B9BD5")
-        rcolor = RCOLS.get(tname, "#2E5FA3")
-        for _, row in gdf.iterrows():
-            g = row.get("geometry")
-            if g is None or g.is_empty:
-                continue
-            cnum = row.get("component")
-            bounds.append(g.bounds)
-            matched = next((cid for cid, rid in route_id_map.items() if cnum == rid), None)
-            if matched is not None:
-                _geom_to_svg(g, rcolor, MM, route_svgs[matched])
-            else:
-                _geom_to_svg(g, color, MM, comp_svg)
-
-    if not bounds:
-        return {"svg": "", "vb": [-4500, -3000, 9000, 6000], "routes": {}}
-
-    xmin = min(b[0] for b in bounds) * MM
-    ymin = min(b[1] for b in bounds) * MM
-    xmax = max(b[2] for b in bounds) * MM
-    ymax = max(b[3] for b in bounds) * MM
-    pad = max((xmax - xmin) * 0.08, (ymax - ymin) * 0.08, 200)
-
-    return {
-        "svg": "\n".join(comp_svg),
-        "vb":  [xmin-pad, ymin-pad, (xmax-xmin)+2*pad, (ymax-ymin)+2*pad],
-        "routes": {cid: "\n".join(svgs) for cid, svgs in route_svgs.items()},
-    }
-
-
-# ── Persistent worker process ─────────────────────────────────────────────────
-
-def _worker_process(req_q: multiprocessing.Queue, res_q: multiprocessing.Queue) -> None:
-    import os
-    os.environ["QISKIT_METAL_HEADLESS"] = "1"
-    os.environ["MPLBACKEND"] = "Agg"
-
-    try:
-        import importlib, inspect, pkgutil
-        import qiskit_metal.qlibrary as _qlibrary
-        from qiskit_metal import designs as _designs
-        from qiskit_metal.qlibrary.core import QComponent as _QComponent
-
-        _CLASS_MAP: dict[str, type] = {}
-        for _, modname, _ in pkgutil.walk_packages(path=_qlibrary.__path__, prefix=_qlibrary.__name__ + ".", onerror=lambda _: None):
-            try:
-                mod = importlib.import_module(modname)
-            except Exception:
-                continue
-            for _, cls in inspect.getmembers(mod, inspect.isclass):
-                if issubclass(cls, _QComponent) and cls is not _QComponent and cls.__module__ == modname:
-                    _CLASS_MAP[cls.__name__] = cls
-
-        res_q.put({"type": "ready", "classes": len(_CLASS_MAP)})
-    except Exception:
-        import traceback
-        res_q.put({"type": "error", "error": traceback.format_exc(limit=6)})
-        return
-
-    while True:
-        try:
-            job = req_q.get(timeout=300)
-        except Exception:
-            continue
-
-        if job.get("type") == "stop":
-            break
-
-        job_id = job.get("id", "")
-        try:
-            jtype = job["type"]
-            if jtype == "component_preview":
-                result = _do_component_preview(job["component_id"], job["module"], job["params"], _designs, _CLASS_MAP, importlib)
-            elif jtype == "full_design":
-                result = _do_full_design(job["graph"], _designs, _CLASS_MAP)
-            else:
-                result = {"error": f"unknown job type: {jtype}"}
-        except Exception:
-            import traceback
-            result = {"error": traceback.format_exc(limit=8)}
-
-        result["id"] = job_id
-        res_q.put(result)
-
-
-# ── Worker manager (singleton) ────────────────────────────────────────────────
+# ── Worker manager (singleton subprocess JSON IPC) ────────────────────────────
 
 class _WorkerManager:
     def __init__(self) -> None:
-        self._req:  "multiprocessing.Queue | None" = None
-        self._res:  "multiprocessing.Queue | None" = None
-        self._proc: "multiprocessing.Process | None" = None
-        self._lock     = threading.Lock()
-        self._ready    = False
-        self._job_lock = threading.Lock()
+        self._proc: Optional[subprocess.Popen] = None
+        self._lock = threading.Lock()
+        self._ready = False
+        self._pending_jobs: Dict[str, dict] = {}
+        self._jobs_lock = threading.Lock()
+        self._reader_thread: Optional[threading.Thread] = None
 
     def _start(self) -> bool:
-        self._req  = multiprocessing.Queue()
-        self._res  = multiprocessing.Queue()
-        self._proc = multiprocessing.Process(target=_worker_process, args=(self._req, self._res), daemon=True)
-        self._proc.start()
-        log.info("Persistent render worker starting (pid=%d) …", self._proc.pid)
+        # Determine Python executable to run the worker (default to system python fallback)
+        py_exe = os.getenv("METAL_WORKER_PYTHON")
+        if not py_exe:
+            global_path = Path(r"C:\Users\nmoti\AppData\Local\Programs\Python\Python311\python.exe")
+            py_exe = str(global_path) if global_path.exists() else "python"
+        
+        worker_script = Path(__file__).parent / "worker.py"
+        log.info("Starting background Qiskit Metal worker subprocess with %s ...", py_exe)
+        
         try:
-            msg = self._res.get(timeout=WORKER_WARMUP_TIMEOUT)
-            if msg.get("type") == "ready":
-                log.info("Render worker ready — %d component classes loaded.", msg.get("classes", 0))
+            self._proc = subprocess.Popen(
+                [py_exe, "-u", str(worker_script)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1, # Line buffered
+            )
+        except Exception as e:
+            log.error("Failed to spawn Qiskit Metal worker subprocess: %s", e)
+            return False
+
+        # Asynchronously redirect stderr to python logs
+        def _read_stderr():
+            while self._proc and self._proc.poll() is None:
+                try:
+                    line = self._proc.stderr.readline()
+                    if line:
+                        log.info("Worker: %s", line.strip())
+                except Exception:
+                    break
+        threading.Thread(target=_read_stderr, daemon=True, name="worker-stderr-reader").start()
+
+        # Wait for the ready message on stdout
+        try:
+            ready_line = self._proc.stdout.readline()
+            if not ready_line:
+                log.error("Worker process stdout closed early.")
+                return False
+            
+            ready_msg = json.loads(ready_line)
+            if ready_msg.get("type") == "ready":
+                log.info("Qiskit Metal worker online. %d component classes loaded.", ready_msg.get("classes", 0))
                 self._ready = True
+                
+                # Start background stdout reader thread for subsequent responses
+                self._reader_thread = threading.Thread(target=self._stdout_reader, daemon=True, name="worker-stdout-reader")
+                self._reader_thread.start()
                 return True
-            log.error("Render worker failed: %s", msg.get("error", ""))
+            log.error("Worker sent unexpected ready payload: %s", ready_msg)
             return False
-        except Exception:
-            log.error("Render worker did not respond in %ds.", WORKER_WARMUP_TIMEOUT)
+        except Exception as exc:
+            log.error("Timeout or exception waiting for worker ready state: %s", exc)
             return False
+
+    def _stdout_reader(self) -> None:
+        while self._proc and self._proc.poll() is None:
+            try:
+                line = self._proc.stdout.readline()
+                if not line:
+                    break
+                
+                msg = json.loads(line)
+                job_id = msg.get("id")
+                if job_id:
+                    with self._jobs_lock:
+                        self._pending_jobs[job_id] = msg
+            except Exception as e:
+                log.error("Error reading from worker stdout: %s", e)
+                break
 
     def _ensure(self) -> bool:
         with self._lock:
-            if self._proc is None or not self._proc.is_alive() or not self._ready:
+            if self._proc is None or self._proc.poll() is not None or not self._ready:
+                self._ready = False
                 return self._start()
             return True
 
@@ -321,24 +126,43 @@ class _WorkerManager:
         import uuid
         if not self._ensure():
             return {"error": "Render worker unavailable."}
+        
         job_id = uuid.uuid4().hex
         job["id"] = job_id
-        with self._job_lock:
-            self._req.put(job)
-            deadline = time.monotonic() + timeout
-            while time.monotonic() < deadline:
-                remaining = deadline - time.monotonic()
-                try:
-                    result = self._res.get(timeout=min(2.0, remaining))
-                    if result.get("id") == job_id:
-                        return result
-                    self._res.put(result)
-                except Empty:
-                    pass
-                if not self._proc.is_alive():
-                    self._ready = False
-                    return {"error": "Render worker crashed."}
+        
+        try:
+            payload = json.dumps(job) + "\n"
+            self._proc.stdin.write(payload)
+            self._proc.stdin.flush()
+        except Exception as e:
+            log.error("Failed to write job to worker stdin: %s", e)
+            self._ready = False
+            return {"error": f"Failed to send job to worker: {e}"}
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self._jobs_lock:
+                if job_id in self._pending_jobs:
+                    return self._pending_jobs.pop(job_id)
+            
+            if self._proc.poll() is not None:
+                self._ready = False
+                return {"error": "Render worker crashed during job execution."}
+                
+            time.sleep(0.02)
+            
         return {"error": f"Render timed out after {timeout}s."}
+
+    def stop(self) -> None:
+        with self._lock:
+            if self._proc and self._proc.poll() is None:
+                try:
+                    self._proc.stdin.write(json.dumps({"type": "stop"}) + "\n")
+                    self._proc.stdin.flush()
+                    self._proc.wait(timeout=2.0)
+                except Exception:
+                    self._proc.kill()
+            self._ready = False
 
 
 _manager = _WorkerManager()
@@ -346,6 +170,7 @@ _manager = _WorkerManager()
 
 def warmup_worker() -> None:
     _manager._ensure()
+
 
 
 # ── RenderService ─────────────────────────────────────────────────────────────
