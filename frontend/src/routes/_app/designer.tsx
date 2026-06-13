@@ -1531,25 +1531,34 @@ function InteractiveCADCanvas({
     }
   }, [selectedQubit, isFullscreen, dimensions, coords]);
 
+  const zoomScaleRef = useRef(zoomScale);
+  const panOffsetRef = useRef(panOffset);
+  useEffect(() => {
+    zoomScaleRef.current = zoomScale;
+    panOffsetRef.current = panOffset;
+  }, [zoomScale, panOffset]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !isFullscreen) return;
     const handleNativeWheel = (e: WheelEvent) => {
       e.preventDefault();
+      const currentZoom = zoomScaleRef.current;
+      const currentPan = panOffsetRef.current;
       const zoomFactor = 1.15;
       const nextZoom =
-        e.deltaY < 0 ? Math.min(5, zoomScale * zoomFactor) : Math.max(0.5, zoomScale / zoomFactor);
+        e.deltaY < 0 ? Math.min(5, currentZoom * zoomFactor) : Math.max(0.5, currentZoom / zoomFactor);
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left,
         mouseY = e.clientY - rect.top;
-      const worldX = (mouseX - panOffset.x) / zoomScale,
-        worldY = (mouseY - panOffset.y) / zoomScale;
+      const worldX = (mouseX - currentPan.x) / currentZoom,
+        worldY = (mouseY - currentPan.y) / currentZoom;
       setZoomScale(nextZoom);
       setPanOffset({ x: mouseX - worldX * nextZoom, y: mouseY - worldY * nextZoom });
     };
     canvas.addEventListener("wheel", handleNativeWheel, { passive: false });
     return () => canvas.removeEventListener("wheel", handleNativeWheel);
-  }, [isFullscreen, zoomScale, panOffset]);
+  }, [isFullscreen]);
 
   const drawCanvas = () => {
     const canvas = canvasRef.current;

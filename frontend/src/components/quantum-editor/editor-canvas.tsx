@@ -3,7 +3,7 @@ import {
   forwardRef, useImperativeHandle,
 } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Minus, Maximize2, ZoomIn, ZoomOut } from "lucide-react";
+import { Maximize2, ZoomIn, ZoomOut } from "lucide-react";
 import { prefixForCategory, type EditorState } from "@/lib/editor/design-store";
 import { useWorkspace } from "@/lib/editor/workspace-store";
 import {
@@ -89,7 +89,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
   const [libDragId, setLibDragId] = useState<string | null>(null);
   const [dropPrev,  setDropPrev]  = useState<{ componentId: string; x: number; y: number } | null>(null);
   const [dragOver,  setDragOver]  = useState(false);
-  const [hovered,   setHovered]   = useState<string | null>(null);
 
   const canvasW = size.w - RULER_L;
   const canvasH = size.h - RULER_B;
@@ -145,11 +144,16 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
     y: -(py -           canvasH / 2) / state.zoom / MM_TO_PX + state.pan.y / MM_TO_PX,
   }), [canvasW, canvasH, state.pan, state.zoom]);
 
+  const zoomRef = useRef(state.zoom);
+  useEffect(() => {
+    zoomRef.current = state.zoom;
+  }, [state.zoom]);
+
   useEffect(() => {
     const svg = svgRef.current; if (!svg) return;
-    const onW = (e: WheelEvent) => { e.preventDefault(); dispatch({ type: "ZOOM", zoom: state.zoom * (e.deltaY < 0 ? 1.1 : 1/1.1) }); };
+    const onW = (e: WheelEvent) => { e.preventDefault(); dispatch({ type: "ZOOM", zoom: zoomRef.current * (e.deltaY < 0 ? 1.1 : 1/1.1) }); };
     svg.addEventListener("wheel", onW, { passive: false }); return () => svg.removeEventListener("wheel", onW);
-  }, [dispatch, state.zoom]);
+  }, [dispatch]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -276,11 +280,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
   const vTS = Math.max(0, Math.min(1, 1 - (panYmm + vHY + WORLD_H) / wTotal)), vTSz = Math.min(1, (vHY * 2) / wTotal);
   const trH = canvasW - SCROLL_SZ, trV = canvasH - SCROLL_SZ;
 
-  const changeScale = useCallback((id: string, delta: number) => {
-    const p = state.placements.find((x) => x.id === id); if (!p) return;
-    const cur = getUiScale(p), next = Math.max(SCALE_MIN, Math.min(SCALE_MAX, parseFloat((cur + delta).toFixed(2))));
-    dispatch({ type: "UPDATE_PLACEMENT", id, patch: { params: { ...p.params, [UI_SCALE_KEY]: next } } });
-  }, [state.placements, dispatch]);
+
 
   return (
     <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-background select-none">
@@ -375,33 +375,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, object>(function Edit
         </g>
       </svg>
 
-      {/* Component hover zoom overlays */}
-      {state.placements.map((p) => {
-        const isH = hovered === p.id, isSel = state.selection?.kind === "placement" && state.selection.id === p.id;
-        if (!isH && !isSel) return null;
-        const { px, py } = w2s(p.x, p.y), sc = getUiScale(p);
-        return (
-          <div key={`ov-${p.id}`} className="pointer-events-auto absolute z-30 flex items-center gap-1 rounded-full border border-border bg-card/95 px-2 py-1 shadow-lg backdrop-blur"
-            style={{ left: px, top: py, transform: "translate(-50%, calc(-100% - 18px))" }}
-            onMouseEnter={() => setHovered(p.id)} onMouseLeave={() => setHovered(null)}>
-            <button type="button" disabled={sc <= SCALE_MIN+0.001} onClick={(e) => { e.stopPropagation(); changeScale(p.id, -SCALE_STEP); }}
-              className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-foreground hover:bg-primary hover:text-primary-foreground disabled:opacity-30 transition-colors" title="Make component smaller">
-              <Minus className="h-3.5 w-3.5" />
-            </button>
-            <span className="min-w-[40px] text-center text-[11px] font-bold tabular-nums">{Math.round(sc * 100)}%</span>
-            <button type="button" disabled={sc >= SCALE_MAX-0.001} onClick={(e) => { e.stopPropagation(); changeScale(p.id, SCALE_STEP); }}
-              className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-foreground hover:bg-primary hover:text-primary-foreground disabled:opacity-30 transition-colors" title="Make component larger">
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        );
-      })}
 
-      {/* Hover hit areas */}
-      {state.placements.map((p) => {
-        const { px, py } = w2s(p.x, p.y), hit = Math.max(48, 0.9 * MM_TO_PX * state.zoom * getUiScale(p));
-        return <div key={`hh-${p.id}`} className="pointer-events-auto absolute" style={{ left: px-hit/2, top: py-hit/2, width: hit, height: hit, zIndex: 15 }} onMouseEnter={() => setHovered(p.id)} onMouseLeave={() => setHovered(null)} />;
-      })}
 
       {/* Global zoom */}
       <div className="absolute bottom-3 right-4 flex items-center gap-1 rounded-full border border-border bg-card/95 px-1.5 py-1 shadow-sm backdrop-blur">
